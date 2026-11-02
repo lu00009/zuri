@@ -1,0 +1,74 @@
+# PocketBrain root .gitignore
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Python & Backend
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+.venv/
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+*.db
+backend/.env
+
+# Flutter & Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/.pub-cache/
+mobile/.pub/
+mobile/pubspec.lock
+
+# Android build outputs
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/*.keystore
+mobile/android/*.jks
+
+# iOS build outputs
+mobile/ios/.symlinks/
+mobile/ios/Pods/
+mobile/ios/Podfile.lock
+
+# Secrets and credentials
+*.key
+*.pem
+*.cert
+*.p12
+*.secret
