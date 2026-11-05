@@ -43,7 +43,9 @@ class DeterministicEmbeddingProvider(EmbeddingProvider):
     STOPWORDS = {
         "what", "is", "the", "for", "with", "was", "a", "an", "in", "to", "of",
         "and", "or", "on", "at", "by", "it", "this", "that", "which", "are", "be",
-        "did", "do", "how", "when", "where", "who", "why"
+        "did", "do", "does", "how", "when", "where", "who", "why", "i", "my", "me",
+        "we", "our", "you", "your", "can", "could", "would", "should", "have", "had",
+        "has", "been", "about"
     }
 
     def _vectorize(self, text: str) -> list[float]:

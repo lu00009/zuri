@@ -11,3 +11,19 @@ class TokenPayload(BaseModel):
     sub: str | None = None
     exp: int | None = None
     type: str | None = None
+    jti: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str | None = None
+    username: str | None = None
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = None
+

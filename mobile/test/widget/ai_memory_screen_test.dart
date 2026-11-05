@@ -47,6 +47,101 @@ class FakeAiRemoteDataSource implements AiRemoteDataSource {
   }) async {
     return [];
   }
+
+  @override
+  Future<ConversationDetail> createConversation({String? title}) async {
+    return ConversationDetail(
+      id: 'test-conv-1',
+      userId: 'test-user-1',
+      title: title ?? 'New Conversation',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: [],
+    );
+  }
+
+  @override
+  Future<List<ConversationSummary>> listConversations({int limit = 30}) async {
+    return [];
+  }
+
+  @override
+  Future<ConversationDetail> getConversation(String conversationId) async {
+    return ConversationDetail(
+      id: conversationId,
+      userId: 'test-user-1',
+      title: 'Test Conversation',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: [],
+    );
+  }
+
+  @override
+  Future<ConversationSummary> renameConversation({
+    required String conversationId,
+    required String title,
+  }) async {
+    return ConversationSummary(
+      id: conversationId,
+      userId: 'test-user-1',
+      title: title,
+      messageCount: 0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> deleteConversation(String conversationId) async {}
+
+  @override
+  Future<ConversationMessageItem> sendConversationMessage({
+    required String conversationId,
+    required String query,
+    int topK = 5,
+    double similarityThreshold = 0.20,
+  }) async {
+    lastQuery = query;
+    return ConversationMessageItem(
+      id: 'msg-1',
+      conversationId: conversationId,
+      role: 'assistant',
+      content: stubbedAnswer?.answer ?? 'Test assistant answer',
+      citations: stubbedAnswer?.citations ?? [],
+      hasSufficientEvidence: stubbedAnswer?.hasSufficientEvidence ?? true,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<List<RelatedMemory>> getRelatedMemories(
+    String noteId, {
+    int limit = 5,
+    double minSimilarity = 0.15,
+  }) async {
+    return [];
+  }
+
+  @override
+  Future<MemoryRecap> getMemoryRecap({
+    String period = 'weekly',
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final now = DateTime.now();
+    return MemoryRecap(
+      period: period,
+      startDate: startDate ?? now.subtract(const Duration(days: 7)),
+      endDate: endDate ?? now,
+      totalNotes: 0,
+      overview: 'Test recap overview',
+      categories: [],
+      importantDecisions: [],
+      recurringTopics: [],
+      unfinishedIdeas: [],
+    );
+  }
 }
 
 Widget createTestWidget({required FakeAiRemoteDataSource fakeDataSource}) {

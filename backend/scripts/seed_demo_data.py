@@ -29,39 +29,40 @@ DEMO_NOTES = [
     },
     {
         "id": "demo-note-2",
-        "title": "SQLite Local Persistence & Offline First",
+        "title": "Database & Migrations (SQLite & Alembic)",
         "content": (
-            "All note mutations are written synchronously to device SQLite first using sqflite. "
+            "Database & Migrations: All note mutations are written synchronously to device SQLite first using sqflite. "
+            "Backend schema migrations are managed through Alembic and SQLAlchemy ORM. "
             "Local client UUIDs (v4) guarantee zero-roundtrip offline note creation. "
             "A dedicated sync_operations table enqueues pending mutations to ensure no edits are lost across app restarts."
         ),
         "project_id": "PocketBrain Core",
-        "tags": ["sqlite", "offline-first", "mobile"],
+        "tags": ["database", "migrations", "sqlite", "offline-first", "mobile"],
         "is_pinned": True,
     },
     {
         "id": "demo-note-3",
-        "title": "Conflict Preservation Protocol",
+        "title": "Project Decisions & Conflict Preservation",
         "content": (
-            "Silent last-write-wins is strictly forbidden. When the server detects an edit conflict "
+            "Project Decisions: Silent last-write-wins is strictly forbidden. When the server detects an edit conflict "
             "(client_version < server_version), it rejects the overwrite and returns status CONFLICT. "
             "The client preserves local edits by creating a sibling note '[Conflict] Title (Local Edit)', "
             "ensuring 100% human thought preservation."
         ),
         "project_id": "PocketBrain Core",
-        "tags": ["sync", "distributed-systems", "architecture"],
+        "tags": ["project-decisions", "sync", "distributed-systems", "architecture"],
         "is_pinned": False,
     },
     {
         "id": "demo-note-4",
-        "title": "FastAPI Backend & Security Hardening",
+        "title": "API Tokens & Security Hardening",
         "content": (
-            "Backend is implemented in FastAPI (Python 3.12) with SQLAlchemy 2.0 ORM and Alembic migrations. "
-            "Authentication uses short-lived JWT access tokens (15m expiry) and long-lived refresh tokens (30d). "
+            "API Tokens & Security: Backend is implemented in FastAPI (Python 3.12) with SQLAlchemy 2.0 ORM. "
+            "Authentication uses short-lived JWT API tokens (15m expiry) and long-lived refresh tokens (30d). "
             "Passwords use bcrypt hashing with salted rounds. Multi-tenant isolation is enforced at query level."
         ),
         "project_id": "PocketBrain Backend",
-        "tags": ["backend", "fastapi", "security", "jwt"],
+        "tags": ["api-tokens", "security", "backend", "fastapi", "jwt"],
         "is_pinned": False,
     },
     {
@@ -126,6 +127,16 @@ def seed_demo_data():
                 db.add(note)
                 for tag_name in item["tags"]:
                     tag = NoteTag(note_id=note.id, tag=tag_name)
+                    db.add(tag)
+                seeded_notes += 1
+            else:
+                existing.title = item["title"]
+                existing.content = item["content"]
+                existing.project_id = item.get("project_id")
+                existing.is_pinned = item.get("is_pinned", False)
+                db.query(NoteTag).filter(NoteTag.note_id == existing.id).delete()
+                for tag_name in item["tags"]:
+                    tag = NoteTag(note_id=existing.id, tag=tag_name)
                     db.add(tag)
                 seeded_notes += 1
 

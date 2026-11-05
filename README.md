@@ -1,4 +1,4 @@
-# PocketBrain: Offline-First Personal Knowledge & Memory Assistant
+# Zuri: Offline-First Personal Knowledge & Memory Assistant
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.47.8-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)

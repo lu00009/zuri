@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class UserBase(BaseModel):
     email: str = Field(..., min_length=3, max_length=255, description="User email address")
+    name: str = Field(default="", max_length=255, description="User display name")
 
 
 class UserCreate(UserBase):

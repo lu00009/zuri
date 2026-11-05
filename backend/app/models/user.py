@@ -23,6 +23,11 @@ class User(Base):
         String(255),
         nullable=False,
     )
+    name: Mapped[str] = mapped_column(
+        String(255),
+        default="",
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -44,5 +49,19 @@ class User(Base):
     notes = relationship(
         "Note",
         back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
+    # Relationship to user's refresh tokens
+    refresh_tokens = relationship(
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    # Relationship to user's conversations
+    conversations = relationship(
+        "Conversation",
+        back_populates="user",
         cascade="all, delete-orphan",
     )
