@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -123,19 +122,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
           );
         }
       }
-    } on SocketException {
-      // Offline network error: allow access if previously authenticated
-      final cachedUser = await _repository.getCachedUser();
-      state = state.copyWith(
-        status: AuthStatus.authenticated,
-        user: cachedUser,
-        isOffline: true,
-        clearError: true,
-      );
     } on DioException catch (dioErr) {
-      if (dioErr.error is SocketException ||
+      final isOfflineError =
           dioErr.type == DioExceptionType.connectionTimeout ||
-          dioErr.type == DioExceptionType.connectionError) {
+          dioErr.type == DioExceptionType.connectionError ||
+          dioErr.error?.toString().contains('SocketException') == true ||
+          dioErr.error?.toString().contains('Failed host lookup') == true;
+
+      if (isOfflineError) {
         // Network offline: retain previous session for offline-first capabilities
         final cachedUser = await _repository.getCachedUser();
         state = state.copyWith(
@@ -151,10 +145,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
       }
     } catch (_) {
-      state = state.copyWith(
-        status: AuthStatus.unauthenticated,
-        clearUser: true,
-      );
+      final cachedUser = await _repository.getCachedUser();
+      if (cachedUser != null) {
+        state = state.copyWith(
+          status: AuthStatus.authenticated,
+          user: cachedUser,
+          isOffline: true,
+          clearError: true,
+        );
+      } else {
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+        );
+      }
     }
   }
 
@@ -261,9 +265,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
 
     try {
-      if (_ref != null) {
-        _ref!.read(notesListProvider.notifier).clearNotes();
-        _ref!.read(syncProvider.notifier).checkPendingCount();
+      final ref = _ref;
+      if (ref != null) {
+        ref.read(notesListProvider.notifier).clearNotes();
+        ref.read(syncProvider.notifier).checkPendingCount();
       }
     } catch (_) {}
 

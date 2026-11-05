@@ -62,9 +62,9 @@ void main() {
       final router = GoRouter(
         initialLocation: '/login',
         routes: [
-          GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-          GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
-          GoRoute(path: '/', builder: (_, __) => const Scaffold(body: Text('Home Screen'))),
+          GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+          GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
+          GoRoute(path: '/', builder: (context, state) => const Scaffold(body: Text('Home Screen'))),
         ],
       );
 
@@ -126,9 +126,9 @@ void main() {
       final router = GoRouter(
         initialLocation: '/register',
         routes: [
-          GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-          GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
-          GoRoute(path: '/', builder: (_, __) => const Scaffold(body: Text('Home Screen'))),
+          GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+          GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
+          GoRoute(path: '/', builder: (context, state) => const Scaffold(body: Text('Home Screen'))),
         ],
       );
 
