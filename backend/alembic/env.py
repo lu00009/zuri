@@ -12,8 +12,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set SQLAlchemy URL from application settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Set SQLAlchemy URL from application settings, standardizing legacy postgres:// to postgresql://
+alembic_db_url = settings.DATABASE_URL
+if alembic_db_url.startswith("postgres://"):
+    alembic_db_url = alembic_db_url.replace("postgres://", "postgresql://", 1)
+config.set_main_option("sqlalchemy.url", alembic_db_url)
 
 target_metadata = Base.metadata
 

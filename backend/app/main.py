@@ -6,8 +6,10 @@ from app.db.base import Base
 from app.db.session import engine
 import app.models  # noqa: F401
 
-# Ensure tables are created
-Base.metadata.create_all(bind=engine)
+# In development and test environments, auto-create tables if missing.
+# In production, schema migrations are explicitly applied via Alembic migrations.
+if settings.ENVIRONMENT.lower() != "production":
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -18,10 +20,10 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_STR}/redoc",
 )
 
-# Set permissive CORS for development / mobile emulator connectivity
+# Configurable CORS with production origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
