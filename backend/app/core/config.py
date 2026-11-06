@@ -40,6 +40,13 @@ class Settings(BaseSettings):
         "https://proud-maker-453907-b8.firebaseapp.com",
     ]
 
+    # Cloudinary configuration
+    CLOUDINARY_URL: str | None = None
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
+    CLOUDINARY_UPLOAD_PRESET: str = "zuri_folders"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
