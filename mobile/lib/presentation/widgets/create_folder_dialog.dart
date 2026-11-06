@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../data/datasources/remote/cloudinary_service.dart';
 import '../../domain/entities/folder.dart';
 import 'notebook_illustration.dart';
 
@@ -15,13 +18,15 @@ class CreateFolderDialog extends StatefulWidget {
 class _CreateFolderDialogState extends State<CreateFolderDialog> {
   final _nameController = TextEditingController();
   String? _selectedImagePath;
+  Uint8List? _selectedImageBytes;
   bool _removedExistingImage = false;
   String _selectedColor = '#EF4444';
   bool _isPickingImage = false;
+  bool _isUploadingToCloudinary = false;
 
   static const List<String> _colorPresets = [
-    '#EF4444', // Red (like YouTube Ideas in screenshot)
-    '#3B82F6', // Blue (like User Research in screenshot)
+    '#EF4444', // Red
+    '#3B82F6', // Blue
     '#8B5CF6', // Purple
     '#F59E0B', // Amber
     '#10B981', // Emerald
@@ -56,10 +61,31 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
       );
 
       if (picked != null) {
+        final bytes = await picked.readAsBytes();
         setState(() {
-          _selectedImagePath = picked.path;
+          _selectedImageBytes = bytes;
+          _selectedImagePath = 'data:image/jpeg;base64,${base64Encode(bytes)}';
           _removedExistingImage = false;
+          _isUploadingToCloudinary = true;
         });
+
+        // Upload to Cloudinary
+        try {
+          final cloudinaryUrl = await CloudinaryService().uploadImageBytes(
+            bytes: bytes,
+            filename: picked.name,
+          );
+          if (mounted) {
+            setState(() {
+              _selectedImagePath = cloudinaryUrl;
+              _isUploadingToCloudinary = false;
+            });
+          }
+        } catch (_) {
+          if (mounted) {
+            setState(() => _isUploadingToCloudinary = false);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -78,7 +104,9 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
   void _removeImage() {
     setState(() {
       _selectedImagePath = null;
+      _selectedImageBytes = null;
       _removedExistingImage = true;
+      _isUploadingToCloudinary = false;
     });
   }
 
@@ -135,11 +163,13 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
                     children: [
                       NotebookIllustration(
                         coverImagePath: _selectedImagePath,
+                        coverImageBytes: _selectedImageBytes,
                         colorAccentHex: _selectedColor,
                         width: 100,
                         height: 125,
                       ),
-                      if (_selectedImagePath != null && _selectedImagePath!.isNotEmpty)
+                      if ((_selectedImagePath != null && _selectedImagePath!.isNotEmpty) ||
+                          (_selectedImageBytes != null && _selectedImageBytes!.isNotEmpty))
                         Positioned(
                           right: -4,
                           top: -4,
@@ -160,24 +190,46 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
                 ),
                 const SizedBox(height: 12),
 
-                // Image picker action button
+                // Cloudinary status or image picker button
                 Center(
-                  child: TextButton.icon(
-                    onPressed: _isPickingImage ? null : _pickImage,
-                    icon: _isPickingImage
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF3B82F6)),
-                          )
-                        : const Icon(Icons.photo_library_outlined, size: 18),
-                    label: Text(
-                      _selectedImagePath != null ? 'Change Cover Image' : 'Choose Cover from Gallery',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF3B82F6),
-                    ),
+                  child: Column(
+                    children: [
+                      TextButton.icon(
+                        onPressed: _isPickingImage ? null : _pickImage,
+                        icon: _isPickingImage
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF3B82F6)),
+                              )
+                            : const Icon(Icons.photo_library_outlined, size: 18),
+                        label: Text(
+                          _selectedImagePath != null ? 'Change Cover Image' : 'Choose Cover from Gallery',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF3B82F6),
+                        ),
+                      ),
+                      if (_isUploadingToCloudinary) ...[
+                        const SizedBox(height: 4),
+                        const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF3B82F6)),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Optimizing & uploading to Cloudinary...',
+                              style: TextStyle(fontSize: 11, color: Color(0xFF3B82F6)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -199,34 +251,35 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
                     filled: true,
                     fillColor: isDark ? const Color(0xFF26262B) : const Color(0xFFF1F5F9),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: isDark ? Colors.white.withAlpha(20) : const Color(0xFFE2E8F0),
-                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                       borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
                     ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 20),
 
-                // Color Accent Selection
+                // Color Accents
                 Text(
                   'Spine Color Accent',
                   style: TextStyle(
                     color: isDark ? const Color(0xFF9E9EA7) : const Color(0xFF64748B),
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: _colorPresets.map((hex) {
-                    final color = Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16));
-                    final isSelected = _selectedColor.toUpperCase() == hex.toUpperCase();
+                    final clean = hex.replaceAll('#', '');
+                    final color = Color(int.parse('FF$clean', radix: 16));
+                    final isSelected = _selectedColor == hex;
+
                     return GestureDetector(
                       onTap: () => setState(() => _selectedColor = hex),
                       child: Container(
@@ -235,16 +288,13 @@ class _CreateFolderDialogState extends State<CreateFolderDialog> {
                         decoration: BoxDecoration(
                           color: color,
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: isSelected
-                                ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                                : Colors.transparent,
-                            width: 2.5,
-                          ),
+                          border: isSelected
+                              ? Border.all(color: Colors.white, width: 2.5)
+                              : null,
                           boxShadow: [
                             if (isSelected)
                               BoxShadow(
-                                color: color.withAlpha(150),
+                                color: color.withAlpha(120),
                                 blurRadius: 8,
                                 spreadRadius: 1,
                               ),

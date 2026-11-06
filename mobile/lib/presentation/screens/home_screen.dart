@@ -23,7 +23,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _searchController = TextEditingController();
-  bool _isSearchVisible = false;
 
   @override
   void dispose() {
@@ -309,24 +308,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
             onPressed: () => ref.read(themeModeProvider.notifier).toggleTheme(),
-          ),
-          // Search Toggle
-          IconButton(
-            icon: Icon(
-              _isSearchVisible ? Icons.search_off : Icons.search,
-              color: isDark ? Colors.white : const Color(0xFF0F172A),
-            ),
-            tooltip: 'Search notes',
-            onPressed: () {
-              setState(() {
-                _isSearchVisible = !_isSearchVisible;
-                if (!_isSearchVisible) {
-                  _searchController.clear();
-                  notifier.setSearchQuery('');
-                  ref.read(foldersListProvider.notifier).setSearchQuery('');
-                }
-              });
-            },
           ),
           // Ask Zuri AI Shortcut
           IconButton(

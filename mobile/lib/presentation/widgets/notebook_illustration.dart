@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class NotebookIllustration extends StatelessWidget {
   final String? coverImagePath;
+  final Uint8List? coverImageBytes;
   final String? colorAccentHex;
   final double width;
   final double height;
@@ -11,6 +13,7 @@ class NotebookIllustration extends StatelessWidget {
   const NotebookIllustration({
     super.key,
     this.coverImagePath,
+    this.coverImageBytes,
     this.colorAccentHex,
     this.width = 100,
     this.height = 125,
@@ -29,9 +32,10 @@ class NotebookIllustration extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accentColor = _parseAccentColor(colorAccentHex);
-    final hasImage = coverImagePath != null && coverImagePath!.isNotEmpty;
+    final hasBytes = coverImageBytes != null && coverImageBytes!.isNotEmpty;
+    final hasPath = coverImagePath != null && coverImagePath!.isNotEmpty;
 
-    if (hasImage) {
+    if (hasBytes || hasPath) {
       return Container(
         width: width,
         height: height,
@@ -50,7 +54,7 @@ class NotebookIllustration extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _buildCoverImage(coverImagePath!),
+              _buildCoverImage(),
               // Subtle gradient overlay for depth
               Container(
                 decoration: BoxDecoration(
@@ -99,23 +103,15 @@ class NotebookIllustration extends StatelessWidget {
             offset: const Offset(2, 4),
           ),
         ],
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF333338),
-            Color(0xFF202024),
-          ],
-        ),
       ),
       child: Stack(
         children: [
-          // Left spine bar
+          // Left Spine Accent (Color Bar)
           Positioned(
             left: 0,
             top: 0,
             bottom: 0,
-            width: width * 0.14,
+            width: 14,
             child: Container(
               decoration: BoxDecoration(
                 color: accentColor,
@@ -123,27 +119,53 @@ class NotebookIllustration extends StatelessWidget {
                   topLeft: Radius.circular(8),
                   bottomLeft: Radius.circular(8),
                 ),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    accentColor,
-                    Color.alphaBlend(Colors.black.withAlpha(50), accentColor),
-                  ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(80),
+                    blurRadius: 3,
+                    offset: const Offset(1, 0),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Subtle Spine Crease shadow
+          Positioned(
+            left: 14,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            child: Container(
+              color: Colors.black.withAlpha(60),
+            ),
+          ),
+          // Notebook Bookmark Ribbon / Tag
+          Positioned(
+            top: 0,
+            right: 18,
+            width: 10,
+            height: 22,
+            child: Container(
+              decoration: BoxDecoration(
+                color: accentColor.withAlpha(220),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(3),
+                  bottomRight: Radius.circular(3),
                 ),
               ),
             ),
           ),
-          // Notebook debossed content lines
+          // Notebook Title Debossed Mock Lines
           Positioned(
-            left: width * 0.28,
-            right: width * 0.16,
-            top: height * 0.32,
+            left: 28,
+            top: height * 0.40,
+            right: 14,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  height: 4,
+                  height: 5,
+                  width: width * 0.55,
                   decoration: BoxDecoration(
                     color: const Color(0xFF4A4A52),
                     borderRadius: BorderRadius.circular(2),
@@ -166,23 +188,74 @@ class NotebookIllustration extends StatelessWidget {
     );
   }
 
-  Widget _buildCoverImage(String path) {
-    if (kIsWeb) {
-      return Image.network(
-        path,
+  Widget _buildCoverImage() {
+    // 1. In-memory image bytes (used during gallery selection preview)
+    if (coverImageBytes != null && coverImageBytes!.isNotEmpty) {
+      return Image.memory(
+        coverImageBytes!,
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) => _buildFallback(),
       );
     }
-    final file = File(path);
-    if (!file.existsSync()) {
+
+    final path = coverImagePath;
+    if (path == null || path.isEmpty) {
       return _buildFallback();
     }
-    return Image.file(
-      file,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => _buildFallback(),
-    );
+
+    // 2. Data URI (base64 fallback for offline/direct storage)
+    if (path.startsWith('data:image/')) {
+      try {
+        final commaIdx = path.indexOf(',');
+        if (commaIdx != -1) {
+          final b64Str = path.substring(commaIdx + 1);
+          final bytes = base64Decode(b64Str);
+          return Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _buildFallback(),
+          );
+        }
+      } catch (_) {}
+    }
+
+    // 3. Cloudinary or any Network HTTP/HTTPS / Blob URL
+    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('blob:')) {
+      return Image.network(
+        path,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            color: const Color(0xFF26262B),
+            child: const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF3B82F6)),
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => _buildFallback(),
+      );
+    }
+
+    // 4. Local File path (mobile/desktop gallery cache)
+    if (!kIsWeb) {
+      try {
+        final file = File(path);
+        if (file.existsSync()) {
+          return Image.file(
+            file,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _buildFallback(),
+          );
+        }
+      } catch (_) {}
+    }
+
+    return _buildFallback();
   }
 
   Widget _buildFallback() {
