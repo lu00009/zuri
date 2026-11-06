@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import '../../domain/entities/auth_user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/local/secure_token_storage.dart';
@@ -50,6 +51,13 @@ class AuthRepositoryImpl implements AuthRepository {
       final user = AuthUser.fromJson(response);
       await saveCachedUser(user);
       return user;
+    } on DioException catch (dioErr) {
+      // 401 Unauthorized means access token is expired or invalid
+      if (dioErr.response?.statusCode == 401) {
+        return null;
+      }
+      // Rethrow connectivity / timeout / server cold-start errors so session persistence logic can preserve offline session
+      rethrow;
     } catch (_) {
       return null;
     }

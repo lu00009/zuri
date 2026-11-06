@@ -280,6 +280,20 @@ void main() {
       expect(notifier.state.status, AuthStatus.unauthenticated);
       expect(notifier.state.isAuthenticated, isFalse);
     });
+
+    test('Temporary network disconnection preserves authenticated offline state and cached user', () async {
+      await tokenStorage.saveTokens(accessToken: 'valid-token', refreshToken: 'valid-refresh');
+      await tokenStorage.saveUserData(email: 'alice@example.com', name: 'Alice', userId: 'u1');
+      repository.isNetworkDown = true;
+
+      final notifier = AuthNotifier(repository);
+      await notifier.initialize();
+
+      expect(notifier.state.status, AuthStatus.authenticated);
+      expect(notifier.state.isAuthenticated, isTrue);
+      expect(notifier.state.isOffline, isTrue);
+      expect(notifier.state.user?.email, 'alice@example.com');
+    });
   });
 }
 

@@ -385,6 +385,11 @@ class GroundedLocalLLMProvider(LLMProvider):
                     parts.append(f"Additionally, in '{item['title']}', you wrote: \"{clean}\".")
             synthesized_answer = " ".join(parts)
 
+        # Generate actionable recommendation / next steps grounded in the retrieved notes
+        recommendation = self._generate_note_recommendation(query, qualified_notes)
+        if recommendation:
+            synthesized_answer = f"{synthesized_answer}\n\n💡 **Recommendation:** {recommendation}"
+
         elapsed = (time.perf_counter() - start_time) * 1000
         approx_tokens = len(query.split()) + sum(len(n['content'].split()) for n in qualified_notes)
 
@@ -396,6 +401,38 @@ class GroundedLocalLLMProvider(LLMProvider):
             model_name="pocketbrain-grounded-v1",
             tokens_used=approx_tokens,
         )
+
+    @staticmethod
+    def _generate_note_recommendation(query: str, qualified_notes: list[dict[str, Any]]) -> str:
+        """
+        Synthesizes an intelligent, actionable recommendation based on the retrieved notes.
+        """
+        combined_text = " ".join(
+            f"{n.get('title', '')} {n.get('content', '')}" for n in qualified_notes
+        ).lower()
+
+        # Check for actionable tasks, deadlines, schedules
+        if any(w in combined_text for w in ["deadline", "schedule", "rescheduled", "meeting", "prepare", "todo", "task", "urgent", "due", "tomorrow", "friday", "monday"]):
+            return "Consider reviewing the timeline for these action items or scheduling a quick reminder so you stay on track."
+
+        # Check for decisions, choices, architecture
+        if any(w in combined_text for w in ["choose", "chose", "decision", "decided", "versus", "vs", "database", "stack", "option"]):
+            return "You might want to record the criteria or test outcomes that led to this decision so you have clear context in the future."
+
+        # Check for learning, study, reading
+        if any(w in combined_text for w in ["learn", "learned", "study", "concept", "course", "read", "article", "tutorial"]):
+            return "A great next step would be applying this concept in a small hands-on project or jotting down questions to explore further."
+
+        # Check for ideas, brainstorming, features
+        if any(w in combined_text for w in ["idea", "feature", "brainstorm", "concept", "build", "create", "launch"]):
+            return "Consider breaking this idea down into concrete milestones or creating a dedicated notebook to collect related thoughts."
+
+        # Fallback recommendation based on the top note's title
+        top_title = qualified_notes[0].get("title", "").strip()
+        if top_title:
+            return f"Keep your note on '{top_title}' updated as your plans progress, or connect it with related notes."
+
+        return "Review your related notes or organize them into a notebook to keep your knowledge connected."
 
     def generate_related_explanation(
         self,

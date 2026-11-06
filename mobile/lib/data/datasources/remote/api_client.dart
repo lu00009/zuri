@@ -39,14 +39,19 @@ class ApiClient {
 
   /// Resolves the default base API URL with the following precedence:
   /// 1. Compile-time environment variable injection (`--dart-define=API_BASE_URL=...`).
-  /// 2. If Flutter Web in release mode: requires `API_BASE_URL` (never silently defaults to localhost in production).
+  /// 2. If in release mode (production APK or Web deploy): defaults to the live Render cloud backend.
   /// 3. If Flutter Web in debug mode: defaults to `http://localhost:8000/api/v1`.
-  /// 4. If Android (emulator): defaults to `http://10.0.2.2:8000/api/v1`.
+  /// 4. If Android in debug mode (emulator): defaults to `http://10.0.2.2:8000/api/v1`.
   /// 5. Desktop (Linux, macOS, Windows) and iOS local development: defaults to `http://localhost:8000/api/v1`.
   static String getDefaultBaseUrl() {
     const envBaseUrl = String.fromEnvironment('API_BASE_URL');
     if (envBaseUrl.isNotEmpty) {
       return envBaseUrl;
+    }
+
+    // In production release builds (both web and mobile APK), connect to the live cloud backend
+    if (kReleaseMode) {
+      return 'https://pocketbrain-8cp6.onrender.com/api/v1';
     }
 
     if (kIsWeb) {

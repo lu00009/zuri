@@ -133,5 +133,29 @@ void main() {
       expect(sessionExpiredCalled, isTrue);
       expect(await storage.hasTokens(), isFalse);
     });
+
+    test('Network timeout during refresh does NOT clear tokens or expire session', () async {
+      final storage = TestTokenStorage(accessToken: 'jwt-1', refreshToken: 'ref-1');
+      final dio = Dio();
+      bool sessionExpiredCalled = false;
+      final interceptor = AuthInterceptor(
+        dio: dio,
+        tokenStorage: storage,
+        onSessionExpired: () => sessionExpiredCalled = true,
+      );
+
+      final reqOptions = RequestOptions(path: '/notes');
+      final error = DioException(
+        requestOptions: reqOptions,
+        response: Response(statusCode: 401, requestOptions: reqOptions),
+      );
+
+      final handler = TestErrorHandler();
+      await interceptor.onError(error, handler);
+
+      // Tokens should still be preserved
+      expect(sessionExpiredCalled, isFalse);
+      expect(await storage.getRefreshToken(), equals('ref-1'));
+    });
   });
 }

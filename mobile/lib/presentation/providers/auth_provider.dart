@@ -94,6 +94,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     state = state.copyWith(status: AuthStatus.refreshing);
 
+    // Read cached user identity early so UI immediately has user state if offline
+    final cachedUser = await _repository.getCachedUser();
+
     try {
       final user = await _repository.getMe();
       if (user != null) {
@@ -103,49 +106,61 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isOffline: false,
           clearError: true,
         );
+        return;
+      }
+
+      // Access token was rejected with 401; attempt token refresh
+      final refreshed = await _repository.refreshToken();
+      if (refreshed) {
+        final refreshedUser = await _repository.getMe();
+        state = state.copyWith(
+          status: AuthStatus.authenticated,
+          user: refreshedUser ?? cachedUser,
+          isOffline: false,
+          clearError: true,
+        );
       } else {
-        // Access token might be expired; attempt token refresh
-        final refreshed = await _repository.refreshToken();
-        if (refreshed) {
-          final refreshedUser = await _repository.getMe();
-          state = state.copyWith(
-            status: AuthStatus.authenticated,
-            user: refreshedUser,
-            isOffline: false,
-            clearError: true,
-          );
-        } else {
-          // Token is invalid/revoked; transition to unauthenticated
-          state = state.copyWith(
-            status: AuthStatus.unauthenticated,
-            clearUser: true,
-          );
-        }
+        // Refresh token itself was rejected or expired
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+        );
       }
     } on DioException catch (dioErr) {
-      final isOfflineError =
-          dioErr.type == DioExceptionType.connectionTimeout ||
-          dioErr.type == DioExceptionType.connectionError ||
-          dioErr.error?.toString().contains('SocketException') == true ||
-          dioErr.error?.toString().contains('Failed host lookup') == true;
+      final statusCode = dioErr.response?.statusCode;
 
-      if (isOfflineError) {
-        // Network offline: retain previous session for offline-first capabilities
-        final cachedUser = await _repository.getCachedUser();
+      // Only if the server explicitly returned 401 or 403 do we attempt refresh or conclude session is invalid
+      if (statusCode == 401 || statusCode == 403) {
+        try {
+          final refreshed = await _repository.refreshToken();
+          if (refreshed) {
+            final refreshedUser = await _repository.getMe();
+            state = state.copyWith(
+              status: AuthStatus.authenticated,
+              user: refreshedUser ?? cachedUser,
+              isOffline: false,
+              clearError: true,
+            );
+            return;
+          }
+        } catch (_) {}
+
+        // Both access and refresh tokens failed authentication
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+        );
+      } else {
+        // Any connectivity error, timeout, socket exception, or server waking (502/503/504):
+        // PRESERVE SESSION! User remains logged in with offline access to notes and collections.
         state = state.copyWith(
           status: AuthStatus.authenticated,
           user: cachedUser,
           isOffline: true,
           clearError: true,
         );
-      } else {
-        state = state.copyWith(
-          status: AuthStatus.unauthenticated,
-          clearUser: true,
-        );
       }
     } catch (_) {
-      final cachedUser = await _repository.getCachedUser();
       if (cachedUser != null) {
         state = state.copyWith(
           status: AuthStatus.authenticated,

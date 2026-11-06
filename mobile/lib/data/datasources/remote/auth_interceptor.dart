@@ -85,6 +85,8 @@ class AuthInterceptor extends QueuedInterceptor {
           BaseOptions(
             baseUrl: dio.options.baseUrl,
             headers: {'Content-Type': 'application/json'},
+            connectTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 15),
           ),
         );
 
@@ -106,13 +108,24 @@ class AuthInterceptor extends QueuedInterceptor {
           newAccessToken = access;
           _refreshCompleter!.complete(access);
         } else {
-          await tokenStorage.clearTokens();
-          onSessionExpired?.call();
+          // Explicit non-200 authentication failure
+          if (refreshResponse.statusCode == 401 || refreshResponse.statusCode == 403) {
+            await tokenStorage.clearTokens();
+            onSessionExpired?.call();
+          }
           _refreshCompleter!.complete(null);
         }
-      } catch (e) {
-        await tokenStorage.clearTokens();
-        onSessionExpired?.call();
+      } on DioException catch (dioErr) {
+        // ONLY clear credentials if the backend explicitly rejected the refresh token as invalid/revoked
+        final statusCode = dioErr.response?.statusCode;
+        if (statusCode == 401 || statusCode == 403) {
+          await tokenStorage.clearTokens();
+          onSessionExpired?.call();
+        }
+        // For network timeouts, connection drops, or temporary 502/503 server cold-starts:
+        // NEVER clear credentials! Preserve offline session and saved tokens.
+        _refreshCompleter!.complete(null);
+      } catch (_) {
         _refreshCompleter!.complete(null);
       } finally {
         _refreshCompleter = null;

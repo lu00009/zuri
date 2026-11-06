@@ -819,13 +819,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                         ),
                         const SizedBox(height: 10),
                       ],
-                      Text(
-                        msg.content,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontSize: 14.5,
-                          height: 1.5,
-                        ),
-                      ),
+                      _buildAssistantContent(context, msg.content),
                     ],
                   ),
                 ),
@@ -860,6 +854,77 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildAssistantContent(BuildContext context, String content) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final parts = content.split(RegExp(r'\n\n💡\s*(\*\*)?Recommendation:?(\*\*)?\s*', caseSensitive: false));
+    final mainText = parts[0].trim();
+    final recommendation = parts.length > 1 ? parts[1].trim() : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          mainText,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14.5,
+            height: 1.5,
+          ),
+        ),
+        if (recommendation != null && recommendation.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B).withAlpha(120) : const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? const Color(0xFF3B82F6).withAlpha(80) : const Color(0xFFBFDBFE),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.lightbulb_outline,
+                  color: Color(0xFF2563EB),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Recommendation',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1D4ED8),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        recommendation,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -934,12 +999,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  answer.answer,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        height: 1.5,
-                      ),
-                ),
+                _buildAssistantContent(context, answer.answer),
               ],
             ),
           ),
