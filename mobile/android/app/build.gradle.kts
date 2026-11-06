@@ -22,7 +22,7 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         ndk {
-            abiFilters.add("x86_64")
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
         }
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

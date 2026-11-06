@@ -146,10 +146,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     // Verify app bar title
-    expect(find.text('PocketBrain'), findsOneWidget);
+    expect(find.text('Zuri'), findsOneWidget);
 
     // Verify empty state message
-    expect(find.text('Your pocket is empty'), findsOneWidget);
+    expect(find.text('No notes yet'), findsOneWidget);
     // expect(find.text('Offline Storage Active'), findsOneWidget);
     expect(find.byType(FloatingActionButton), findsOneWidget);
   });
@@ -203,8 +203,10 @@ void main() {
     expect(find.text('First Thought'), findsOneWidget);
     expect(find.text('Second Thought'), findsOneWidget);
 
-    // Test toggle to Archive view
-    await tester.tap(find.byTooltip('View Archived Notes'));
+    // Test toggle to Archive view via Account dialog or direct action
+    await tester.tap(find.byKey(const Key('home_account_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View Archived Notes'));
     // Settle archive switch and FAB exit animation
     await tester.pumpAndSettle();
 

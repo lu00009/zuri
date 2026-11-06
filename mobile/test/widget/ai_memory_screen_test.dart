@@ -7,10 +7,15 @@ import 'package:pocketbrain/presentation/screens/ai_memory_screen.dart';
 
 class FakeAiRemoteDataSource implements AiRemoteDataSource {
   final GroundedAnswer? stubbedAnswer;
+  final List<ConversationSummary>? stubbedConversations;
   final bool shouldThrow;
   String? lastQuery;
 
-  FakeAiRemoteDataSource({this.stubbedAnswer, this.shouldThrow = false});
+  FakeAiRemoteDataSource({
+    this.stubbedAnswer,
+    this.stubbedConversations,
+    this.shouldThrow = false,
+  });
 
   @override
   Future<GroundedAnswer> askMemory({
@@ -62,7 +67,7 @@ class FakeAiRemoteDataSource implements AiRemoteDataSource {
 
   @override
   Future<List<ConversationSummary>> listConversations({int limit = 30}) async {
-    return [];
+    return stubbedConversations ?? [];
   }
 
   @override
@@ -164,10 +169,10 @@ void main() {
     await tester.pump();
 
     // Verify title and prompts
-    expect(find.text('PocketBrain AI'), findsOneWidget);
-    expect(find.text('Flutter State Management'), findsOneWidget);
-    expect(find.text('Database & Migrations'), findsOneWidget);
-    expect(find.text('Personal AI Memory'), findsOneWidget);
+    expect(find.text('Zuri'), findsOneWidget);
+    expect(find.text('Say hello to Zuri 👋'), findsOneWidget);
+    expect(find.text('What can you do?'), findsOneWidget);
+    expect(find.text('Meet Zuri, Your AI Assistant'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
   });
 
@@ -194,13 +199,14 @@ void main() {
     await tester.pumpWidget(createTestWidget(fakeDataSource: fakeSource));
     await tester.pump();
 
-    // Tap the 'Flutter State Management' chip
-    await tester.tap(find.text('Flutter State Management'));
+    // Enter query in TextField
+    await tester.enterText(find.byType(TextField), 'Project notes & goals');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pump(); // Start request
     await tester.pump(); // Finish future and rebuild
 
     // Verify query was sent
-    expect(fakeSource.lastQuery, 'Flutter State Management');
+    expect(fakeSource.lastQuery, 'Project notes & goals');
 
     // Verify answer card displayed
     expect(find.text('Grounded in Notes'), findsOneWidget);
@@ -210,8 +216,7 @@ void main() {
     );
 
     // Verify citation card displayed
-    expect(find.text('Sources & Citations (1)'), findsOneWidget);
-    expect(find.text('Flutter State Management'), findsNWidgets(3)); // Input text + Chip + Citation Title
+    expect(find.text('Referenced Notes (1)'), findsOneWidget);
     expect(find.text('92% match'), findsOneWidget);
     expect(
       find.text('We selected Riverpod 2.x for compile-time safety and provider composition.'),
@@ -242,9 +247,9 @@ void main() {
     await tester.pump();
 
     // Verify insufficient evidence badge
-    expect(find.text('Insufficient Evidence'), findsOneWidget);
+    expect(find.text('No Matching Notes'), findsOneWidget);
     expect(find.text('Insufficient information in your saved notes to answer this question.'), findsOneWidget);
-    expect(find.textContaining('Sources & Citations'), findsNothing);
+    expect(find.textContaining('Referenced Notes'), findsNothing);
   });
 
   testWidgets('Displays error banner and retry button on query failure',
@@ -254,12 +259,45 @@ void main() {
     await tester.pumpWidget(createTestWidget(fakeDataSource: fakeSource));
     await tester.pump();
 
-    await tester.tap(find.text('Database & Migrations'));
+    await tester.enterText(find.byType(TextField), 'Project notes & goals');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pump();
     await tester.pump();
 
     expect(find.text('Query Failed'), findsOneWidget);
     expect(find.textContaining('Network connection refused'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('Tapping hamburger menu opens chat history drawer with previous conversations and New Chat button',
+      (tester) async {
+    final fakeSource = FakeAiRemoteDataSource(
+      stubbedConversations: [
+        ConversationSummary(
+          id: 'conv-101',
+          userId: 'user-1',
+          title: 'Zuri Brainstorming',
+          messageCount: 4,
+          createdAt: DateTime.now().subtract(const Duration(days: 1)),
+          updatedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(createTestWidget(fakeDataSource: fakeSource));
+    await tester.pumpAndSettle();
+
+    // Verify hamburger icon is present
+    expect(find.byIcon(Icons.menu), findsOneWidget);
+
+    // Tap hamburger icon
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+
+    // Verify drawer contents
+    expect(find.text('Chat History'), findsOneWidget);
+    expect(find.text('New Chat'), findsOneWidget);
+    expect(find.text('Zuri Brainstorming'), findsOneWidget);
+    expect(find.textContaining('4 msgs'), findsOneWidget);
   });
 }

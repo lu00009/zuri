@@ -174,7 +174,20 @@ class RetrievalService:
         """
         Executes grounded retrieval and synthesizes an answer with source citations.
         Supports cross-memory querying, comparison, and change detection.
+        Separates conversational intent (greetings/chit-chat) so they never trigger note search.
         """
+        # Conversational check: Never trigger a knowledge-base search for greetings or chit-chat
+        conversational_reply = self.llm_provider._detect_conversational_intent(query)
+        if conversational_reply:
+            return AiAskResponse(
+                answer=conversational_reply,
+                has_sufficient_evidence=True,
+                citations=[],
+                latency_ms=1.0,
+                model_name="zuri-conversational-v1",
+                tokens_used=len(conversational_reply.split()),
+            )
+
         retrieved = self.search_similar(db, user_id, query, top_k=top_k)
         result = self.llm_provider.generate_grounded_answer(
             query=query,
@@ -428,7 +441,56 @@ class RetrievalService:
             for m in history_msgs
         ]
 
-        # 1. Resolve conversational references / pronouns
+        # 1. Conversational intent check: Never trigger knowledge-base search for greetings or chit-chat
+        conversational_reply = self.llm_provider._detect_conversational_intent(query)
+        if conversational_reply:
+            user_msg = ConversationMessage(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                role="user",
+                content=query,
+                citations_json=None,
+                has_sufficient_evidence=True,
+            )
+            db.add(user_msg)
+            db.flush()
+
+            assistant_msg = ConversationMessage(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                role="assistant",
+                content=conversational_reply,
+                citations_json=None,
+                has_sufficient_evidence=True,
+            )
+            db.add(assistant_msg)
+            conversation.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(user_msg)
+            db.refresh(assistant_msg)
+
+            return ConversationMessageCreateResponse(
+                user_message=ConversationMessageResponse(
+                    id=user_msg.id,
+                    conversation_id=user_msg.conversation_id,
+                    role=user_msg.role,
+                    content=user_msg.content,
+                    citations=[],
+                    has_sufficient_evidence=True,
+                    created_at=user_msg.created_at,
+                ),
+                assistant_message=ConversationMessageResponse(
+                    id=assistant_msg.id,
+                    conversation_id=assistant_msg.conversation_id,
+                    role=assistant_msg.role,
+                    content=assistant_msg.content,
+                    citations=[],
+                    has_sufficient_evidence=True,
+                    created_at=assistant_msg.created_at,
+                ),
+            )
+
+        # 2. Resolve conversational references / pronouns
         resolved_query = self.llm_provider.resolve_query_context(query, history_list)
 
         # 2. Retrieve relevant notes using both resolved query and base query

@@ -118,7 +118,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Join PocketBrain to start organizing notes with offline AI',
+                      'Join Zuri to organize your notes and personal AI memory',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,

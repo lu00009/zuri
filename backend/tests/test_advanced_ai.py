@@ -305,3 +305,92 @@ def test_advanced_ai_user_isolation(client, auth_headers_user_a, auth_headers_us
     assert recap_b.status_code == 200
     assert recap_b.json()["total_notes"] == 0
 
+
+def test_conversational_greetings_and_chit_chat(client, auth_headers_user_a):
+    """
+    Verifies that Zuri naturally responds to greetings, identity, well-being,
+    gratitude, and farewells without returning 'insufficient information'.
+    """
+    conv_res = client.post(
+        "/api/v1/ai/conversations",
+        json={"title": "Chit Chat Test"},
+        headers=auth_headers_user_a,
+    )
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    # 1. Greeting
+    msg1 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "Hello!"},
+        headers=auth_headers_user_a,
+    )
+    assert msg1.status_code == 201
+    reply1 = msg1.json()["assistant_message"]
+    assert "Zuri" in reply1["content"]
+    assert reply1["has_sufficient_evidence"] is True
+    assert len(reply1["citations"]) == 0
+
+    # 2. Who are you / What can you do
+    msg2 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "Who are you?"},
+        headers=auth_headers_user_a,
+    )
+    assert msg2.status_code == 201
+    reply2 = msg2.json()["assistant_message"]
+    assert "Zuri" in reply2["content"]
+    assert "assistant" in reply2["content"].lower()
+
+    # 3. How are you
+    msg3 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "How are you doing today?"},
+        headers=auth_headers_user_a,
+    )
+    assert msg3.status_code == 201
+    assert "doing great" in msg3.json()["assistant_message"]["content"].lower() or "doing well" in msg3.json()["assistant_message"]["content"].lower()
+
+    # 4. Thank you
+    msg4 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "Thank you so much!"},
+        headers=auth_headers_user_a,
+    )
+    assert msg4.status_code == 201
+    assert "welcome" in msg4.json()["assistant_message"]["content"].lower()
+
+    # 5. Farewell
+    msg5 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "Goodbye, see you later!"},
+        headers=auth_headers_user_a,
+    )
+    assert msg5.status_code == 201
+    assert "goodbye" in msg5.json()["assistant_message"]["content"].lower()
+
+    # 6. Exact greeting with emoji and "hi"
+    msg6 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "Say hello to Zuri 👋"},
+        headers=auth_headers_user_a,
+    )
+    assert msg6.status_code == 201
+    reply6 = msg6.json()["assistant_message"]
+    assert reply6["has_sufficient_evidence"] is True
+    assert len(reply6["citations"]) == 0
+    assert "Zuri" in reply6["content"]
+
+    msg7 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "hi"},
+        headers=auth_headers_user_a,
+    )
+    assert msg7.status_code == 201
+    reply7 = msg7.json()["assistant_message"]
+    assert reply7["has_sufficient_evidence"] is True
+    assert len(reply7["citations"]) == 0
+    assert "Zuri" in reply7["content"] or "hello" in reply7["content"].lower()
+
+
+

@@ -139,6 +139,101 @@ class GroundedLocalLLMProvider(LLMProvider):
         context_boost = " ".join(unique_entities[:3])
         return f"{query} {context_boost}".strip()
 
+    @staticmethod
+    def _detect_conversational_intent(query: str) -> str | None:
+        """
+        Recognizes greetings, identity/capabilities inquiries, gratitude, and farewells.
+        Returns a friendly natural response if matched, or None to fall back to note retrieval.
+        Separates pure conversational intent from personal memory-search queries.
+        """
+        q = query.strip().lower()
+        # Remove emojis and punctuation for clean token matching
+        q_clean = re.sub(r"[^\w\s]", " ", q)
+        q_clean = re.sub(r"\s+", " ", q_clean).strip()
+
+        # If the user explicitly asks about saved notes, personal information, or specific knowledge,
+        # it is NOT conversational chit-chat; it must be routed to memory retrieval.
+        memory_seeking_pattern = (
+            r"\b(save|saved|my\s+notes?|notes?\s+about|notes?\s+on|did\s+i|what\s+did\s+i|"
+            r"what\s+do\s+i\s+have|my\s+projects?|my\s+ideas?|my\s+learnings?|my\s+meetings?|"
+            r"remind\s+me|search\s+for|find\s+notes?|look\s+up|what\s+were\s+my|check\s+my)\b"
+        )
+        if re.search(memory_seeking_pattern, q_clean) and not re.search(r"\b(who\s+are\s+you|what\s+can\s+you\s+do)\b", q_clean):
+            return None
+
+        # 0. Emotional feedback, corrections, and criticisms
+        if re.search(r"\b(liar|lying|you\s+lie|you\s+are\s+a\s+liar|youre\s+a\s+liar|fake)\b", q_clean):
+            return "I'm sorry if I gave you an inaccurate or confusing response! I only aim to help you recall what you've saved. What can I look up or clarify for you?"
+        if re.search(r"\b(wrong|incorrect|not\s+true|thats\s+wrong|you\s+are\s+wrong|youre\s+wrong)\b", q_clean):
+            return "My apologies for the confusion! Let me know what information was incorrect or what you'd like me to look up in your notes."
+
+        # 1. Farewells
+        if re.search(
+            r"\b(goodbye|bye|bye\s*bye|see\s*(you|ya|u)|farewell|talk\s*to\s*you\s*later|good\s*night|cya)\b",
+            q_clean,
+        ) and not re.search(r"\b(what|why|which|how|where|when)\b", q_clean):
+            if "night" in q_clean:
+                return "Good night! Rest well, and I'll be right here whenever you're ready to pick up your notes again."
+            return "Goodbye! Have a great day ahead. Whenever you have a new thought or question, I'll be right here."
+
+        # 2. Thank you / Gratitude
+        if re.search(
+            r"\b(thank\s*you|thanks|thank\s+you\s+so\s+much|thanks\s+a\s+lot|appreciate\s+it|thx)\b",
+            q_clean,
+        ) and not re.search(r"\b(what|why|which|how|where|when)\b", q_clean):
+            return "You're very welcome! If there's anything else you'd like to check or remember, just let me know."
+
+        # 3. How are you / Well-being
+        if re.search(r"\b(how\s+are\s+you|how\s+are\s+you\s+doing|hows\s+it\s+going|how\s+do\s+you\s+do|hows\s+everything|how\s+is\s+it\s+going)\b", q_clean):
+            return (
+                "I'm doing great, thank you for asking! I'm ready to help you explore your notes and organize your thoughts. "
+                "What would you like to work on today?"
+            )
+
+        # 4. Identity / Name
+        if re.search(r"\b(who\s+are\s+you|what\s+is\s+your\s+name|what\s+are\s+you|tell\s+me\s+about\s+yourself|introduce\s+yourself|are\s+you\s+(an\s+)?ai)\b", q_clean):
+            return (
+                "I'm Zuri, your personal AI assistant and memory companion. "
+                "I help you remember important ideas, organize your thoughts, find connections across your notes, "
+                "and answer questions based on what you've saved. You can chat with me naturally anytime!"
+            )
+
+        # 5. Capabilities / What can you do / Help
+        if re.search(r"\b(what\s+can\s+you\s+do|how\s+can\s+you\s+help|what\s+do\s+you\s+do|what\s+are\s+your\s+features|help\s+me|help)\b", q_clean):
+            return (
+                "Here is what I can do for you:\n"
+                "• Answer questions based on your saved notes and memories\n"
+                "• Remember conversation context across follow-up questions\n"
+                "• Discover related memories and connect similar ideas\n"
+                "• Summarize your weekly, monthly, or daily learnings and decisions\n"
+                "• Chat with you naturally whenever you need assistance\n\n"
+                "Feel free to ask me anything about your notes, or just chat!"
+            )
+
+        # 6. Greetings (e.g. "Say hello to Zuri", "hello", "hi", "hey", "good morning", "yo")
+        greeting_match = re.search(
+            r"\b(hello|hi|hey|howdy|greetings|good\s*(morning|afternoon|evening|day)|yo|sup|whats\s*up|wassup|greet|say\s+hello|say\s+hi)\b",
+            q_clean,
+        )
+        if greeting_match:
+            words = q_clean.split()
+            has_question = bool(re.search(r"\b(what|which|where|when|why|who\s+did|how\s+to|how\s+do|how\s+did)\b", q_clean))
+            # If it's a greeting phrase without an interrogative question, or a short greeting <= 8 words
+            if not has_question or len(words) <= 8:
+                if "morning" in q_clean:
+                    return "Good morning! I'm Zuri, your personal AI assistant. How can I help you today?"
+                elif "afternoon" in q_clean:
+                    return "Good afternoon! I'm Zuri. How is your day going? Let me know if you need to recall or save anything."
+                elif "evening" in q_clean:
+                    return "Good evening! I'm Zuri. What would you like to review or brainstorm tonight?"
+                return "Hello! I'm Zuri, your personal AI assistant. How can I help you today? You can ask me anything about your notes, or share what's on your mind."
+
+        # 7. Casual acknowledgments
+        if q_clean in {"ok", "okay", "cool", "great", "awesome", "nice", "got it", "sounds good", "understood"}:
+            return "Sounds good! I'm here whenever you're ready to search your notes or save a new thought."
+
+        return None
+
     def generate_grounded_answer(
         self,
         query: str,
@@ -147,6 +242,19 @@ class GroundedLocalLLMProvider(LLMProvider):
         conversation_history: list[dict[str, str]] | None = None,
     ) -> GroundedAnswerResult:
         start_time = time.perf_counter()
+
+        # Check for direct conversational intent first (greetings, identity, gratitude, farewells)
+        conversational_reply = self._detect_conversational_intent(query)
+        if conversational_reply:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            return GroundedAnswerResult(
+                answer=conversational_reply,
+                has_sufficient_evidence=True,
+                citations=[],
+                latency_ms=round(elapsed, 2),
+                model_name="zuri-conversational-v1",
+                tokens_used=len(conversational_reply.split()),
+            )
 
         # Filter notes that pass the relevance bar
         qualified_notes = [

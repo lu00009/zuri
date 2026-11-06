@@ -89,7 +89,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Welcome to PocketBrain',
+                      'Welcome to Zuri',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
@@ -98,7 +98,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Sign in to sync your notes and activate AI Memory',
+                      'Sign in to access your thoughts and chat with Zuri',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,

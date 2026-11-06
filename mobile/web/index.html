@@ -29,8 +29,25 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>flutter_application_1</title>
+  <title>Zuri</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    // Invalidate stale service worker and browser cache from previous builds
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var i = 0; i < registrations.length; i++) {
+          registrations[i].unregister();
+        }
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        for (var i = 0; i < names.length; i++) {
+          caches.delete(names[i]);
+        }
+      });
+    }
+  </script>
 </head>
 <body>
   <!--

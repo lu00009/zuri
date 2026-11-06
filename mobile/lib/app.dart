@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'presentation/providers/auth_provider.dart';
+import 'presentation/providers/theme_provider.dart';
 import 'presentation/screens/ai_memory_screen.dart';
 import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/auth/register_screen.dart';
+import 'presentation/screens/folder_detail_screen.dart';
 import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/memory_recap_screen.dart';
 import 'presentation/screens/note_editor_screen.dart';
@@ -67,13 +69,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: 'note/new',
-            builder: (context, state) => const NoteEditorScreen(),
+            builder: (context, state) => NoteEditorScreen(
+              initialFolderId: state.uri.queryParameters['folderId'],
+            ),
           ),
           GoRoute(
             path: 'note/:id',
             builder: (context, state) {
               final noteId = state.pathParameters['id'];
               return NoteEditorScreen(noteId: noteId);
+            },
+          ),
+          GoRoute(
+            path: 'folder/:id',
+            builder: (context, state) {
+              final folderId = state.pathParameters['id'] ?? '';
+              return FolderDetailScreen(folderId: folderId);
             },
           ),
           GoRoute(
@@ -90,37 +101,61 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
+typedef ZuriApp = PocketBrainApp;
+
 class PocketBrainApp extends ConsumerWidget {
   const PocketBrainApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
-      title: 'PocketBrain',
+      title: 'Zuri',
       debugShowCheckedModeBanner: false,
       routerConfig: router,
       theme: ThemeData(
         useMaterial3: true,
+        brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3B82F6),
+          seedColor: const Color(0xFF2563EB),
           brightness: Brightness.light,
+        ).copyWith(
+          surface: Colors.white,
+          onSurface: const Color(0xFF0F172A),
+          onSurfaceVariant: const Color(0xFF64748B),
+          surfaceContainerHighest: const Color(0xFFF1F5F9),
+          outlineVariant: const Color(0xFFE2E8F0),
         ),
         scaffoldBackgroundColor: const Color(0xFFF8FAFC),
         appBarTheme: const AppBarTheme(
           elevation: 0,
-          backgroundColor: Colors.transparent,
+          backgroundColor: Color(0xFFF8FAFC),
+          foregroundColor: Color(0xFF0F172A),
         ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
+        brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF3B82F6),
           brightness: Brightness.dark,
+        ).copyWith(
+          surface: const Color(0xFF1E1E22),
+          onSurface: Colors.white,
+          onSurfaceVariant: const Color(0xFF9E9EA7),
+          surfaceContainerHighest: const Color(0xFF2A2A2E),
+          outlineVariant: const Color(0xFF2A2A2E),
+        ),
+        scaffoldBackgroundColor: const Color(0xFF121214),
+        appBarTheme: const AppBarTheme(
+          elevation: 0,
+          backgroundColor: Color(0xFF121214),
+          foregroundColor: Colors.white,
         ),
       ),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
     );
   }
 }

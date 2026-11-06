@@ -80,7 +80,7 @@ void main() {
       );
 
       // Verify initial UI elements
-      expect(find.text('Welcome to PocketBrain'), findsOneWidget);
+      expect(find.text('Welcome to Zuri'), findsOneWidget);
       expect(find.byKey(const Key('login_email_input')), findsOneWidget);
       expect(find.byKey(const Key('login_password_input')), findsOneWidget);
       expect(find.byKey(const Key('login_submit_button')), findsOneWidget);

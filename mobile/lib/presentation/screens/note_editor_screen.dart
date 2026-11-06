@@ -9,8 +9,9 @@ import '../providers/sync_provider.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
+  final String? initialFolderId;
 
-  const NoteEditorScreen({super.key, this.noteId});
+  const NoteEditorScreen({super.key, this.noteId, this.initialFolderId});
 
   @override
   ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
@@ -48,6 +49,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         _isPinned = note.isPinned;
         _isArchived = note.isArchived;
       }
+    } else if (widget.initialFolderId != null) {
+      _projectController.text = widget.initialFolderId!;
     }
     if (mounted) {
       setState(() {
@@ -63,22 +66,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     _projectController.dispose();
     _tagInputController.dispose();
     super.dispose();
-  }
-
-  void _addTag(String rawTag) {
-    final clean = rawTag.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
-    if (clean.isNotEmpty && !_tags.contains(clean)) {
-      setState(() {
-        _tags.add(clean);
-        _tagInputController.clear();
-      });
-    }
-  }
-
-  void _removeTag(String tag) {
-    setState(() {
-      _tags.remove(tag);
-    });
   }
 
   Future<void> _saveAndExit() async {
@@ -359,7 +346,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
+        backgroundColor: theme.scaffoldBackgroundColor,
         title: Text(
           widget.noteId == null ? 'New Note' : 'Edit Note',
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -436,72 +425,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 textCapitalization: TextCapitalization.sentences,
               ),
               const Divider(height: 16),
-              // Metadata Row: Project & Tags
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _projectController,
-                      style: theme.textTheme.bodyMedium,
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.folder_outlined, size: 18),
-                        hintText: 'Project (optional)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-                        ),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _tagInputController,
-                      style: theme.textTheme.bodyMedium,
-                      onSubmitted: _addTag,
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.tag, size: 18),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.add, size: 18),
-                          onPressed: () => _addTag(_tagInputController.text),
-                        ),
-                        hintText: 'Add tag...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-                        ),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_tags.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: _tags.map((tag) {
-                      return Chip(
-                        label: Text('#$tag'),
-                        labelStyle: const TextStyle(fontSize: 12),
-                        deleteIcon: const Icon(Icons.close, size: 14),
-                        onDeleted: () => _removeTag(tag),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
               // Main Markdown / Content Editor
               Expanded(
                 child: TextField(

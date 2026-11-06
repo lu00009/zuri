@@ -17,10 +17,9 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
   final ScrollController _scrollController = ScrollController();
 
   static const List<String> _suggestedPrompts = [
-    'Flutter State Management',
-    'Database & Migrations',
-    'API Tokens & Security',
-    'Project Decisions',
+    'Say hello to Zuri 👋',
+    'What can you do?',
+    'Project notes & goals',
   ];
 
   @override
@@ -72,145 +71,6 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     });
   }
 
-  void _showConversationsSheet() {
-    final convState = ref.read(conversationProvider);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Saved Conversations',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_comment_outlined),
-                        tooltip: 'New Conversation',
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          ref
-                              .read(conversationProvider.notifier)
-                              .startNewConversation();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                if (convState.conversations.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24.0),
-                    child: Center(
-                      child: Text(
-                        'No previous conversations yet.\nStart asking questions to begin!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                else
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: convState.conversations.length,
-                      itemBuilder: (c, idx) {
-                        final item = convState.conversations[idx];
-                        final isSelected =
-                            convState.currentConversation?.id == item.id;
-                        return ListTile(
-                          leading: Icon(
-                            isSelected
-                                ? Icons.chat_bubble
-                                : Icons.chat_bubble_outline,
-                            color: isSelected
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey,
-                          ),
-                          title: Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${item.messageCount} messages • ${_formatDate(item.updatedAt)}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (action) {
-                              if (action == 'rename') {
-                                Navigator.pop(ctx);
-                                _showRenameDialog(item.id, item.title);
-                              } else if (action == 'delete') {
-                                ref
-                                    .read(conversationProvider.notifier)
-                                    .deleteConversation(item.id);
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'rename',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit, size: 18),
-                                    SizedBox(width: 8),
-                                    Text('Rename'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.delete_outline,
-                                        size: 18, color: Colors.red),
-                                    SizedBox(width: 8),
-                                    Text('Delete',
-                                        style: TextStyle(color: Colors.red)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            ref
-                                .read(conversationProvider.notifier)
-                                .selectConversation(item.id);
-                          },
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _showRenameDialog(String conversationId, String currentTitle) {
     final controller = TextEditingController(text: currentTitle);
     showDialog(
@@ -256,6 +116,226 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     }
   }
 
+  Widget _buildDrawer(
+    BuildContext context,
+    ConversationState convState,
+    ThemeData theme,
+  ) {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Header with Zuri branding & New Chat
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withAlpha(60),
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.outlineVariant.withAlpha(80),
+                  ),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.auto_awesome,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Zuri',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Personal AI Assistant',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _queryController.clear();
+                      ref.read(aiNotifierProvider.notifier).clear();
+                      ref
+                          .read(conversationProvider.notifier)
+                          .startNewConversation();
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('New Chat'),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Chat history heading
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Chat History',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+            // Conversations list
+            Expanded(
+              child: convState.conversations.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 40,
+                              color: Colors.grey.withAlpha(150),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No previous conversations yet.\nSay hello to start chatting!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      itemCount: convState.conversations.length,
+                      itemBuilder: (ctx, idx) {
+                        final item = convState.conversations[idx];
+                        final isSelected =
+                            convState.currentConversation?.id == item.id;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Material(
+                            color: isSelected
+                                ? theme.colorScheme.primaryContainer.withAlpha(70)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ListTile(
+                            dense: true,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            leading: Icon(
+                              isSelected
+                                  ? Icons.chat_bubble
+                                  : Icons.chat_bubble_outline,
+                              size: 20,
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                            title: Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isSelected
+                                    ? theme.colorScheme.primary
+                                    : null,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${item.messageCount} msgs • ${_formatDate(item.updatedAt)}',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            trailing: PopupMenuButton<String>(
+                              icon: const Icon(Icons.more_vert, size: 18),
+                              onSelected: (action) {
+                                if (action == 'rename') {
+                                  Navigator.of(context).pop();
+                                  _showRenameDialog(item.id, item.title);
+                                } else if (action == 'delete') {
+                                  ref
+                                      .read(conversationProvider.notifier)
+                                      .deleteConversation(item.id);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'rename',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit, size: 16),
+                                      SizedBox(width: 8),
+                                      Text('Rename'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_outline,
+                                          size: 16, color: Colors.red),
+                                      SizedBox(width: 8),
+                                      Text('Delete',
+                                          style: TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              ref
+                                  .read(conversationProvider.notifier)
+                                  .selectConversation(item.id);
+                            },
+                          ),
+                        ),
+                      );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final aiState = ref.watch(aiNotifierProvider);
@@ -263,47 +343,57 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     final currentConv = convState.currentConversation;
     final theme = Theme.of(context);
 
-    final currentTitle = currentConv?.title ?? 'PocketBrain AI';
+    final currentTitle = currentConv?.title ?? 'Zuri';
 
     return Scaffold(
+      drawer: _buildDrawer(context, convState, theme),
       appBar: AppBar(
-        title: InkWell(
-          onTap: _showConversationsSheet,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.psychology_outlined, size: 26),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'PocketBrain AI',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      if (currentConv != null)
-                        Text(
-                          currentTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu),
+            tooltip: 'Chat History',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: Builder(
+          builder: (ctx) => InkWell(
+            onTap: () => Scaffold.of(ctx).openDrawer(),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.psychology_outlined, size: 26),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Zuri',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.normal,
-                          ),
+                              fontSize: 16, fontWeight: FontWeight.bold),
                         ),
-                    ],
+                        if (currentConv != null)
+                          Text(
+                            currentTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                const Icon(Icons.arrow_drop_down, size: 18),
-              ],
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
             ),
           ),
         ),
@@ -354,6 +444,17 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                 ),
               ],
             ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Back to Notes',
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                context.pop();
+              } else {
+                context.go('/');
+              }
+            },
+          ),
         ],
       ),
       body: SafeArea(
@@ -409,7 +510,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: _submitQuery,
                       decoration: InputDecoration(
-                        hintText: 'Ask a question about your saved notes...',
+                        hintText: 'Ask Zuri anything or search your memories...',
                         prefixIcon: const Icon(Icons.search),
                         filled: true,
                         fillColor: theme.colorScheme.surfaceContainerHighest
@@ -510,14 +611,14 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                'Personal AI Memory',
+                'Meet Zuri, Your AI Assistant',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Ask questions about your ideas, architecture decisions, and notes. Conversational memory remembers context across follow-up questions with verifiable citations.',
+                'Say hello, brainstorm ideas, or ask anything about your saved notes and learnings. Zuri remembers your conversation and references your notes when helpful.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey[600],
@@ -584,7 +685,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 SizedBox(width: 10),
-                Text('Searching your knowledge base...'),
+                Text('Searching your memories...'),
               ],
             ),
           ),
@@ -667,53 +768,57 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                       bottomRight: Radius.circular(16),
                     ),
                     border: Border.all(
-                      color: msg.hasSufficientEvidence
-                          ? Colors.green.withAlpha(60)
-                          : Colors.amber.withAlpha(100),
+                      color: !msg.hasSufficientEvidence
+                          ? Colors.amber.withAlpha(100)
+                          : (msg.citations.isNotEmpty
+                              ? Colors.green.withAlpha(60)
+                              : theme.colorScheme.outlineVariant.withAlpha(50)),
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Badge header
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: msg.hasSufficientEvidence
-                              ? Colors.green.withAlpha(30)
-                              : Colors.amber.withAlpha(30),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              msg.hasSufficientEvidence
-                                  ? Icons.verified_outlined
-                                  : Icons.info_outline,
-                              size: 14,
-                              color: msg.hasSufficientEvidence
-                                  ? Colors.green[700]
-                                  : Colors.amber[800],
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              msg.hasSufficientEvidence
-                                  ? 'Grounded in Notes'
-                                  : 'Insufficient Evidence',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                      // Badge header: only show for grounded memory or insufficient evidence, never for pure conversational
+                      if (!msg.hasSufficientEvidence || msg.citations.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: msg.hasSufficientEvidence
+                                ? Colors.green.withAlpha(30)
+                                : Colors.amber.withAlpha(30),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                msg.hasSufficientEvidence
+                                    ? Icons.verified_outlined
+                                    : Icons.info_outline,
+                                size: 14,
                                 color: msg.hasSufficientEvidence
-                                  ? Colors.green[700]
-                                  : Colors.amber[800],
+                                    ? Colors.green[700]
+                                    : Colors.amber[800],
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 4),
+                              Text(
+                                msg.hasSufficientEvidence
+                                    ? 'Grounded in Notes'
+                                    : 'No Matching Notes',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: msg.hasSufficientEvidence
+                                      ? Colors.green[700]
+                                      : Colors.amber[800],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
+                        const SizedBox(height: 10),
+                      ],
                       Text(
                         msg.content,
                         style: theme.textTheme.bodyMedium?.copyWith(
@@ -740,7 +845,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                       const Icon(Icons.format_quote, size: 16),
                       const SizedBox(width: 4),
                       Text(
-                        'Sources & Citations (${msg.citations.length})',
+                        'Referenced Notes (${msg.citations.length})',
                         style: theme.textTheme.labelMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -809,7 +914,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                           Text(
                             answer.hasSufficientEvidence
                                 ? 'Grounded in Notes'
-                                : 'Insufficient Evidence',
+                                : 'No Matching Notes',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -848,7 +953,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                 const Icon(Icons.format_quote, size: 20),
                 const SizedBox(width: 6),
                 Text(
-                  'Sources & Citations (${answer.citations.length})',
+                  'Referenced Notes (${answer.citations.length})',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),

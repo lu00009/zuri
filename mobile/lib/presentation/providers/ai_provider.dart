@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/datasources/remote/ai_remote_data_source.dart';
+import '../../data/datasources/remote/conversational_intent.dart';
 import 'sync_provider.dart';
 
 final aiRemoteDataSourceProvider = Provider<AiRemoteDataSource>((ref) {
@@ -56,18 +57,45 @@ class AiNotifier extends StateNotifier<AiState> {
       clearError: true,
     );
 
+    final conversationalReply = ConversationalIntent.detect(cleanQuery);
+
     try {
-      final result = await _dataSource.askMemory(query: cleanQuery);
+      var result = await _dataSource.askMemory(query: cleanQuery);
+      if (conversationalReply != null) {
+        result = GroundedAnswer(
+          answer: conversationalReply,
+          hasSufficientEvidence: true,
+          citations: const [],
+          latencyMs: result.latencyMs,
+          modelName: 'zuri-conversational-v1',
+          tokensUsed: conversationalReply.split(' ').length,
+        );
+      }
       state = state.copyWith(
         isLoading: false,
         answer: result,
         clearError: true,
       );
     } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: 'Failed to retrieve grounded memory: $e',
-      );
+      if (conversationalReply != null) {
+        state = state.copyWith(
+          isLoading: false,
+          answer: GroundedAnswer(
+            answer: conversationalReply,
+            hasSufficientEvidence: true,
+            citations: const [],
+            latencyMs: 1.0,
+            modelName: 'zuri-conversational-v1',
+            tokensUsed: conversationalReply.split(' ').length,
+          ),
+          clearError: true,
+        );
+      } else {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: 'Failed to retrieve grounded memory: $e',
+        );
+      }
     }
   }
 
@@ -310,11 +338,26 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
       ),
     );
 
+    final conversationalReply = ConversationalIntent.detect(clean);
+
     try {
-      final assistantMsg = await _dataSource.sendConversationMessage(
+      var assistantMsg = await _dataSource.sendConversationMessage(
         conversationId: activeId,
         query: clean,
       );
+
+      // Guardrail: Greetings and conversational chitchat should NEVER show insufficient notes or random note excerpts
+      if (conversationalReply != null) {
+        assistantMsg = ConversationMessageItem(
+          id: assistantMsg.id,
+          conversationId: assistantMsg.conversationId,
+          role: 'assistant',
+          content: conversationalReply,
+          citations: const [],
+          hasSufficientEvidence: true,
+          createdAt: assistantMsg.createdAt,
+        );
+      }
 
       final withAssistant = [
         ...currentMessages,

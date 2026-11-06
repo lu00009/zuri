@@ -50,12 +50,6 @@ class ApiClient {
     }
 
     if (kIsWeb) {
-      if (kReleaseMode) {
-        throw StateError(
-          'API_BASE_URL must be specified for Flutter Web in release mode. '
-          'Build with: flutter build web --release --dart-define=API_BASE_URL=https://<your-backend-domain>/api/v1',
-        );
-      }
       return 'http://localhost:8000/api/v1';
     }
 
@@ -104,3 +98,5 @@ class ApiClient {
     return tokenStorage.hasTokens();
   }
 }
+
+

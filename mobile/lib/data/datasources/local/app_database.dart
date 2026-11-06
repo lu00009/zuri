@@ -2,7 +2,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 class AppDatabase {
   static final Map<String, Database> _databases = {};
@@ -34,12 +36,17 @@ class AppDatabase {
       version: 1,
       onCreate: _onCreate,
     );
+    await _ensureTables(db);
     _databases[dbName] = db;
     return db;
   }
 
   static void _initFfiIfNeeded() {
-    if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      databaseFactory = sqflite.databaseFactorySqflitePlugin;
+    } else if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
@@ -105,6 +112,25 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_notes_project ON notes(project_id)');
     await db.execute('CREATE INDEX idx_note_tags_tag ON note_tags(tag)');
     await db.execute('CREATE INDEX idx_sync_created_at ON sync_operations(created_at ASC)');
+
+    await _ensureTables(db);
+  }
+
+  static Future<void> _ensureTables(Database db) async {
+    // Folders table
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        cover_image_path TEXT,
+        color_accent TEXT,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_folders_updated_at ON folders(updated_at DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_folders_is_pinned ON folders(is_pinned DESC)');
   }
 
   /// Clears all local user data from tables on logout or account switch
@@ -113,6 +139,7 @@ class AppDatabase {
     await db.transaction((txn) async {
       await txn.delete('note_tags');
       await txn.delete('notes');
+      await txn.delete('folders');
       await txn.delete('sync_operations');
     });
   }
