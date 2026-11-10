@@ -45,6 +45,45 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<AuthUser> googleAuth({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  }) async {
+    await remoteDataSource.googleAuth(
+      email: email,
+      name: name,
+      idToken: idToken,
+      googleId: googleId,
+    );
+    final profile = await remoteDataSource.getMe();
+    final user = AuthUser.fromJson(profile);
+    await saveCachedUser(user);
+    return user;
+  }
+
+  @override
+  Future<String> forgotPassword(String email) async {
+    final response = await remoteDataSource.forgotPassword(email);
+    return response['message'] as String? ?? 'Verification code sent to your email';
+  }
+
+  @override
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final response = await remoteDataSource.resetPassword(
+      email: email,
+      code: code,
+      newPassword: newPassword,
+    );
+    return response['message'] as String? ?? 'Password reset successfully';
+  }
+
+  @override
   Future<AuthUser?> getMe() async {
     try {
       final response = await remoteDataSource.getMe();

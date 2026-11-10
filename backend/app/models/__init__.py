@@ -5,6 +5,7 @@ from app.models.sync import AppliedOperation
 from app.models.embedding import NoteEmbedding
 from app.models.refresh_token import RefreshToken
 from app.models.conversation import Conversation, ConversationMessage
+from app.models.password_reset import PasswordResetToken
 
 __all__ = [
     "Base",
@@ -16,4 +17,5 @@ __all__ = [
     "RefreshToken",
     "Conversation",
     "ConversationMessage",
+    "PasswordResetToken",
 ]

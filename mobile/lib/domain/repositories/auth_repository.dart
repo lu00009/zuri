@@ -12,6 +12,21 @@ abstract class AuthRepository {
     required String password,
   });
 
+  Future<AuthUser> googleAuth({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  });
+
+  Future<String> forgotPassword(String email);
+
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  });
+
   Future<AuthUser?> getMe();
 
   Future<bool> refreshToken();

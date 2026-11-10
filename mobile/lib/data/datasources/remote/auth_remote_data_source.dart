@@ -89,6 +89,64 @@ class AuthRemoteDataSource {
     }
   }
 
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final response = await _apiClient.dio.post(
+      '/auth/forgot-password',
+      data: {'email': email.trim()},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final response = await _apiClient.dio.post(
+      '/auth/reset-password',
+      data: {
+        'email': email.trim(),
+        'code': code.trim(),
+        'new_password': newPassword,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> googleAuth({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  }) async {
+    final payload = <String, dynamic>{
+      'email': email.trim(),
+    };
+    if (name != null && name.isNotEmpty) {
+      payload['name'] = name.trim();
+    }
+    if (idToken != null) {
+      payload['id_token'] = idToken;
+    }
+    if (googleId != null) {
+      payload['google_id'] = googleId;
+    }
+
+    final response = await _apiClient.dio.post(
+      '/auth/google',
+      data: payload,
+    );
+    final data = response.data as Map<String, dynamic>;
+    final accessToken = data['access_token'] as String;
+    final refreshToken = data['refresh_token'] as String;
+
+    await _apiClient.saveTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+    return data;
+  }
+
   Future<bool> isAuthenticated() async {
     final token = await _apiClient.getAccessToken();
     return token != null && token.isNotEmpty;

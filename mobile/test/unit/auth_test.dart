@@ -97,6 +97,37 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AuthUser> googleAuth({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  }) async {
+    await tokenStorage.saveTokens(
+      accessToken: 'google-access-token-123',
+      refreshToken: 'google-refresh-token-456',
+    );
+    final user = AuthUser(id: 'google-id-123', email: email, name: name ?? 'Google User');
+    currentUser = user;
+    await saveCachedUser(user);
+    return user;
+  }
+
+  @override
+  Future<String> forgotPassword(String email) async {
+    return 'Verification code sent to $email';
+  }
+
+  @override
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    return 'Password reset successfully';
+  }
+
+  @override
   Future<AuthUser?> getMe() async {
     if (isNetworkDown) {
       throw Exception('Network unreachable');

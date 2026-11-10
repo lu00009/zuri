@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../widgets/google_auth_dialog.dart';
+import '../../widgets/google_logo.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -364,7 +366,54 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               ),
                             ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
+
+                    // Divider
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            'or continue with',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Google Sign-In Button
+                    OutlinedButton.icon(
+                      key: const Key('register_google_sign_in_button'),
+                      onPressed: authState.isLoading
+                          ? null
+                          : () {
+                              ref.read(authProvider.notifier).clearError();
+                              showGoogleSignInDialog(context, ref);
+                            },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      icon: const GoogleLogoWidget(size: 20),
+                      label: const Text(
+                        'Continue with Google',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
 
                     // Navigation to Login
                     Wrap(

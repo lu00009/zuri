@@ -27,3 +27,30 @@ class RefreshTokenRequest(BaseModel):
 class LogoutRequest(BaseModel):
     refresh_token: str | None = None
 
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str | None = None
+    email: str
+    name: str | None = ""
+    google_id: str | None = None
+
+

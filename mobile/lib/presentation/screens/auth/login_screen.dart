@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../widgets/google_auth_dialog.dart';
+import '../../widgets/google_logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -148,16 +150,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ),
                             ),
-                            TextButton.icon(
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              ),
-                              icon: const Icon(Icons.refresh, size: 14),
-                              label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                              onPressed: _submitLogin,
-                            ),
-                            const SizedBox(width: 4),
                             IconButton(
                               icon: const Icon(Icons.close, size: 16),
                               padding: EdgeInsets.zero,
@@ -246,7 +238,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 8),
+
+                    // Forgot Password Link
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        key: const Key('login_forgot_password_button'),
+                        onPressed: () {
+                          ref.read(authProvider.notifier).clearError();
+                          context.push('/forgot-password');
+                        },
+                        child: Text(
+                          'Forgot Password?',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Login Action Button
                     FilledButton(
@@ -275,7 +288,54 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
+
+                    // Divider
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            'or continue with',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Google Sign-In Button
+                    OutlinedButton.icon(
+                      key: const Key('google_sign_in_button'),
+                      onPressed: authState.isLoading
+                          ? null
+                          : () {
+                              ref.read(authProvider.notifier).clearError();
+                              showGoogleSignInDialog(context, ref);
+                            },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      icon: const GoogleLogoWidget(size: 20),
+                      label: const Text(
+                        'Continue with Google',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
 
                     // Navigation to Register Screen
                     Wrap(

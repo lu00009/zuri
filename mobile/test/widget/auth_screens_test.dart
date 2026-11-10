@@ -32,6 +32,26 @@ class MockAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AuthUser> googleAuth({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  }) async {
+    return AuthUser(id: 'u-google', email: email, name: name ?? 'Google User');
+  }
+
+  @override
+  Future<String> forgotPassword(String email) async => 'Code sent';
+
+  @override
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async => 'Reset successful';
+
+  @override
   Future<AuthUser?> getMe() async => null;
 
   @override
@@ -179,6 +199,41 @@ void main() {
 
       expect(mockRepo.registerCalled, isTrue);
       expect(find.text('Home Screen'), findsOneWidget);
+    });
+
+    testWidgets('LoginScreen shows Forgot Password and Google Sign-in buttons', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final mockRepo = MockAuthRepository();
+      final router = GoRouter(
+        initialLocation: '/login',
+        routes: [
+          GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+          GoRoute(path: '/forgot-password', builder: (context, state) => const Scaffold(body: Text('Forgot Password Screen'))),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      expect(find.byKey(const Key('login_forgot_password_button')), findsOneWidget);
+      expect(find.byKey(const Key('google_sign_in_button')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('login_forgot_password_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Forgot Password Screen'), findsOneWidget);
     });
   });
 }

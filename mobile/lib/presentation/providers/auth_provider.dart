@@ -265,6 +265,88 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<bool> loginWithGoogle({
+    required String email,
+    String? name,
+    String? idToken,
+    String? googleId,
+  }) async {
+    state = state.copyWith(
+      status: AuthStatus.authenticating,
+      clearError: true,
+    );
+
+    try {
+      final user = await _repository.googleAuth(
+        email: email.trim(),
+        name: name?.trim(),
+        idToken: idToken,
+        googleId: googleId,
+      );
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: user,
+        isOffline: false,
+        clearError: true,
+      );
+      return true;
+    } on DioException catch (e) {
+      final message = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Google authentication failed. Please try again.',
+      );
+      state = state.copyWith(
+        status: AuthStatus.failure,
+        errorMessage: message,
+      );
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.failure,
+        errorMessage: FriendlyError.toFriendlyMessage(e),
+      );
+      return false;
+    }
+  }
+
+  Future<String> forgotPassword(String email) async {
+    try {
+      final message = await _repository.forgotPassword(email.trim());
+      return message;
+    } on DioException catch (e) {
+      final msg = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Could not send verification code. Please check the email.',
+      );
+      throw Exception(msg);
+    } catch (e) {
+      throw Exception(FriendlyError.toFriendlyMessage(e));
+    }
+  }
+
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    try {
+      final message = await _repository.resetPassword(
+        email: email.trim(),
+        code: code.trim(),
+        newPassword: newPassword,
+      );
+      return message;
+    } on DioException catch (e) {
+      final msg = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Invalid or expired verification code.',
+      );
+      throw Exception(msg);
+    } catch (e) {
+      throw Exception(FriendlyError.toFriendlyMessage(e));
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _repository.logout();
