@@ -416,7 +416,7 @@ class RetrievalService:
         conversation_id: str,
         query: str,
         top_k: int = 5,
-        similarity_threshold: float = 0.20,
+        similarity_threshold: float = 0.25,
     ) -> ConversationMessageCreateResponse:
         """
         Executes a conversational turn with reference resolution and persistent history.
