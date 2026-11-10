@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../data/datasources/local/app_database.dart';
 import '../../data/datasources/local/secure_token_storage.dart';
 import '../../data/datasources/remote/api_client.dart';
@@ -199,10 +200,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return true;
     } on DioException catch (e) {
-      String message = 'Login failed. Please check your credentials.';
-      if (e.response?.data is Map && e.response?.data['detail'] != null) {
-        message = e.response?.data['detail'].toString() ?? message;
-      }
+      final message = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Login failed. Please check your credentials.',
+      );
       state = state.copyWith(
         status: AuthStatus.failure,
         errorMessage: message,
@@ -211,7 +212,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (e) {
       state = state.copyWith(
         status: AuthStatus.failure,
-        errorMessage: 'An unexpected error occurred: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(e),
       );
       return false;
     }
@@ -246,10 +247,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return true;
     } on DioException catch (e) {
-      String message = 'Registration failed.';
-      if (e.response?.data is Map && e.response?.data['detail'] != null) {
-        message = e.response?.data['detail'].toString() ?? message;
-      }
+      final message = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Registration failed. Please try again.',
+      );
       state = state.copyWith(
         status: AuthStatus.failure,
         errorMessage: message,
@@ -258,7 +259,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (e) {
       state = state.copyWith(
         status: AuthStatus.failure,
-        errorMessage: 'An unexpected error occurred: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(e),
       );
       return false;
     }

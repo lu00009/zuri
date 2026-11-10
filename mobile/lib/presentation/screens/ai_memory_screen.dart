@@ -545,20 +545,36 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     ConversationState convState,
     AiState aiState,
   ) {
-    // If an error occurred
-    if (aiState.errorMessage != null || convState.errorMessage != null) {
-      final err = aiState.errorMessage ?? convState.errorMessage!;
+    final currentConv = convState.currentConversation;
+    final messages = currentConv?.messages ?? [];
+
+    final hasError = (convState.errorMessage != null || (messages.isEmpty && aiState.errorMessage != null));
+    final err = convState.errorMessage ?? aiState.errorMessage;
+
+    // If an error occurred and no messages exist yet, show full friendly error card
+    if (messages.isEmpty && hasError && err != null) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 48, color: Colors.redAccent),
-              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: (isDark ? Colors.amber[900] : Colors.amber[100])?.withAlpha(60),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.wifi_off_rounded,
+                  size: 44,
+                  color: isDark ? const Color(0xFFFFD54F) : const Color(0xFFD97706),
+                ),
+              ),
+              const SizedBox(height: 16),
               Text(
-                'Query Failed',
+                'Connection Issue',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -567,12 +583,16 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
               Text(
                 err,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[700]),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    ),
               ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () => _submitQuery(_queryController.text),
-                icon: const Icon(Icons.refresh),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () {
+                  ref.read(conversationProvider.notifier).retryLastMessage();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('Retry'),
               ),
             ],
@@ -580,9 +600,6 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
         ),
       );
     }
-
-    final currentConv = convState.currentConversation;
-    final messages = currentConv?.messages ?? [];
 
     // Fallback: If legacy aiState has answer and conv messages is empty, show legacy answer
     if (messages.isEmpty && aiState.answer != null) {
@@ -631,23 +648,79 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
       );
     }
 
-    // Message List
+    final hasBottomBanner = hasError && err != null;
+    final totalItems = messages.length +
+        (convState.isSendingMessage || aiState.isLoading ? 1 : 0) +
+        (hasBottomBanner ? 1 : 0);
+
+    // Message List with preserved messages and non-intrusive inline error banner
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.all(16.0),
-      itemCount: messages.length +
-          (convState.isSendingMessage || aiState.isLoading ? 1 : 0),
+      itemCount: totalItems,
       itemBuilder: (context, index) {
-        if (index == messages.length) {
+        if (index < messages.length) {
+          final msg = messages[index];
+          if (msg.role == 'user') {
+            return _buildUserBubble(context, msg.content);
+          } else {
+            return _buildAssistantBubble(context, msg);
+          }
+        }
+
+        final loadingOffset = (convState.isSendingMessage || aiState.isLoading) ? 1 : 0;
+        if (loadingOffset > 0 && index == messages.length) {
           return _buildLoadingBubble(context);
         }
-        final msg = messages[index];
-        if (msg.role == 'user') {
-          return _buildUserBubble(context, msg.content);
-        } else {
-          return _buildAssistantBubble(context, msg);
-        }
+
+        return _buildErrorBannerItem(context, err!);
       },
+    );
+  }
+
+  Widget _buildErrorBannerItem(BuildContext context, String errorMessage) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2418) : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF785D1A) : const Color(0xFFFDE68A),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.wifi_off_rounded,
+            size: 22,
+            color: isDark ? const Color(0xFFFFD54F) : const Color(0xFFD97706),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              errorMessage,
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? const Color(0xFFFFF1C2) : const Color(0xFF78350F),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            onPressed: () {
+              ref.read(conversationProvider.notifier).retryLastMessage();
+            },
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 

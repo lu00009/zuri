@@ -493,6 +493,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
 
+              // Network/Sync Error Bar with Retry
+              if (syncState.errorMessage != null && !syncState.isSyncing)
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF2C2418)
+                          : const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? const Color(0xFF785D1A)
+                            : const Color(0xFFFDE68A),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.wifi_off_rounded,
+                          size: 18,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFFFFD54F)
+                              : const Color(0xFFD97706),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            syncState.errorMessage!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? const Color(0xFFFFF1C2)
+                                  : const Color(0xFF78350F),
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          ),
+                          onPressed: () => ref.read(syncProvider.notifier).syncNow(),
+                          icon: const Icon(Icons.refresh, size: 14),
+                          label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
               // ================= SECTION 1: NOTEBOOKS (FOLDERS) =================
               if (!notesState.isArchiveView) ...[
                 SliverToBoxAdapter(

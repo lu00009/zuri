@@ -1,4 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../domain/entities/note.dart';
 import '../datasources/local/sync_queue_data_source.dart';
 import '../datasources/remote/api_client.dart';
@@ -137,7 +138,7 @@ class SyncEngine {
         conflictCount: totalConflicts,
         pulledCount: totalPulled,
         isSuccess: false,
-        errorMessage: 'Sync error: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(e),
       );
     }
   }

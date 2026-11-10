@@ -8,7 +8,7 @@ import 'package:pocketbrain/presentation/screens/ai_memory_screen.dart';
 class FakeAiRemoteDataSource implements AiRemoteDataSource {
   final GroundedAnswer? stubbedAnswer;
   final List<ConversationSummary>? stubbedConversations;
-  final bool shouldThrow;
+  bool shouldThrow;
   String? lastQuery;
 
   FakeAiRemoteDataSource({
@@ -108,6 +108,9 @@ class FakeAiRemoteDataSource implements AiRemoteDataSource {
     double similarityThreshold = 0.20,
   }) async {
     lastQuery = query;
+    if (shouldThrow) {
+      throw Exception('Network connection refused');
+    }
     return ConversationMessageItem(
       id: 'msg-1',
       conversationId: conversationId,
@@ -264,9 +267,20 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Query Failed'), findsOneWidget);
-    expect(find.textContaining('Network connection refused'), findsOneWidget);
+    // User message is preserved on screen rather than wiped
+    expect(find.text('Project notes & goals'), findsWidgets);
+    expect(find.textContaining('Unable to connect to Zuri right now'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+
+    // Tapping Retry after connectivity returns successfully delivers the message
+    fakeSource.shouldThrow = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump();
+
+    // Verify error banner disappears and assistant message appears
+    expect(find.textContaining('Unable to connect to Zuri right now'), findsNothing);
+    expect(find.text('Test assistant answer'), findsOneWidget);
   });
 
   testWidgets('Tapping hamburger menu opens chat history drawer with previous conversations and New Chat button',

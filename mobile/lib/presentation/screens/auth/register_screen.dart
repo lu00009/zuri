@@ -164,6 +164,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 ),
                               ),
                             ),
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              ),
+                              icon: const Icon(Icons.refresh, size: 14),
+                              label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              onPressed: _submitRegistration,
+                            ),
+                            const SizedBox(width: 4),
                             IconButton(
                               icon: const Icon(Icons.close, size: 16),
                               padding: EdgeInsets.zero,

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../data/datasources/remote/ai_remote_data_source.dart';
 import '../../data/datasources/remote/conversational_intent.dart';
 import 'sync_provider.dart';
@@ -17,12 +18,16 @@ class AiState {
   final String currentQuery;
   final GroundedAnswer? answer;
   final String? errorMessage;
+  final bool isNetworkError;
+  final String? lastQuery;
 
   const AiState({
     this.isLoading = false,
     this.currentQuery = '',
     this.answer,
     this.errorMessage,
+    this.isNetworkError = false,
+    this.lastQuery,
   });
 
   AiState copyWith({
@@ -30,6 +35,8 @@ class AiState {
     String? currentQuery,
     GroundedAnswer? answer,
     String? errorMessage,
+    bool? isNetworkError,
+    String? lastQuery,
     bool clearAnswer = false,
     bool clearError = false,
   }) {
@@ -38,6 +45,8 @@ class AiState {
       currentQuery: currentQuery ?? this.currentQuery,
       answer: clearAnswer ? null : (answer ?? this.answer),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      isNetworkError: clearError ? false : (isNetworkError ?? this.isNetworkError),
+      lastQuery: lastQuery ?? this.lastQuery,
     );
   }
 }
@@ -54,6 +63,7 @@ class AiNotifier extends StateNotifier<AiState> {
     state = state.copyWith(
       isLoading: true,
       currentQuery: cleanQuery,
+      lastQuery: cleanQuery,
       clearError: true,
     );
 
@@ -91,11 +101,21 @@ class AiNotifier extends StateNotifier<AiState> {
           clearError: true,
         );
       } else {
+        final friendly = FriendlyError.toFriendlyMessage(e);
+        final isNet = FriendlyError.isNetworkError(e);
         state = state.copyWith(
           isLoading: false,
-          errorMessage: 'Failed to retrieve grounded memory: $e',
+          errorMessage: friendly,
+          isNetworkError: isNet,
+          lastQuery: cleanQuery,
         );
       }
+    }
+  }
+
+  Future<void> retry() async {
+    if (state.lastQuery != null && state.lastQuery!.isNotEmpty) {
+      await ask(state.lastQuery!);
     }
   }
 
@@ -121,6 +141,8 @@ class ConversationState {
   final List<ConversationSummary> conversations;
   final ConversationDetail? currentConversation;
   final String? errorMessage;
+  final bool isNetworkError;
+  final String? lastFailedQuery;
 
   const ConversationState({
     this.isLoadingList = false,
@@ -129,6 +151,8 @@ class ConversationState {
     this.conversations = const [],
     this.currentConversation,
     this.errorMessage,
+    this.isNetworkError = false,
+    this.lastFailedQuery,
   });
 
   ConversationState copyWith({
@@ -138,6 +162,8 @@ class ConversationState {
     List<ConversationSummary>? conversations,
     ConversationDetail? currentConversation,
     String? errorMessage,
+    bool? isNetworkError,
+    String? lastFailedQuery,
     bool clearCurrentConversation = false,
     bool clearError = false,
   }) {
@@ -151,6 +177,8 @@ class ConversationState {
           ? null
           : (currentConversation ?? this.currentConversation),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      isNetworkError: clearError ? false : (isNetworkError ?? this.isNetworkError),
+      lastFailedQuery: lastFailedQuery ?? this.lastFailedQuery,
     );
   }
 }
@@ -179,7 +207,11 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
     } catch (e) {
       state = state.copyWith(
         isLoadingList: false,
-        errorMessage: 'Failed to load conversations: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(
+          e,
+          defaultFallback: 'Unable to load conversations.',
+        ),
+        isNetworkError: FriendlyError.isNetworkError(e),
       );
     }
   }
@@ -196,7 +228,11 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
     } catch (e) {
       state = state.copyWith(
         isLoadingConversation: false,
-        errorMessage: 'Failed to open conversation: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(
+          e,
+          defaultFallback: 'Unable to open conversation.',
+        ),
+        isNetworkError: FriendlyError.isNetworkError(e),
       );
     }
   }
@@ -226,7 +262,11 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
     } catch (e) {
       state = state.copyWith(
         isLoadingConversation: false,
-        errorMessage: 'Failed to create conversation: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(
+          e,
+          defaultFallback: 'Unable to create conversation.',
+        ),
+        isNetworkError: FriendlyError.isNetworkError(e),
       );
       return null;
     }
@@ -265,7 +305,13 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
         clearError: true,
       );
     } catch (e) {
-      state = state.copyWith(errorMessage: 'Failed to rename conversation: $e');
+      state = state.copyWith(
+        errorMessage: FriendlyError.toFriendlyMessage(
+          e,
+          defaultFallback: 'Unable to rename conversation.',
+        ),
+        isNetworkError: FriendlyError.isNetworkError(e),
+      );
     }
   }
 
@@ -292,11 +338,17 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
         await selectConversation(updatedList.first.id);
       }
     } catch (e) {
-      state = state.copyWith(errorMessage: 'Failed to delete conversation: $e');
+      state = state.copyWith(
+        errorMessage: FriendlyError.toFriendlyMessage(
+          e,
+          defaultFallback: 'Unable to delete conversation.',
+        ),
+        isNetworkError: FriendlyError.isNetworkError(e),
+      );
     }
   }
 
-  Future<void> sendMessage(String query) async {
+  Future<void> sendMessage(String query, {bool isRetry = false}) async {
     final clean = query.trim();
     if (clean.isEmpty) return;
 
@@ -309,21 +361,29 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
 
     final activeId = state.currentConversation!.id;
 
-    // Optimistically append user message to local state
-    final optimisticUserMsg = ConversationMessageItem(
-      id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
-      conversationId: activeId,
-      role: 'user',
-      content: clean,
-      citations: const [],
-      hasSufficientEvidence: true,
-      createdAt: DateTime.now(),
-    );
-
-    final currentMessages = [
-      ...state.currentConversation!.messages,
-      optimisticUserMsg,
-    ];
+    // Check if we can reuse existing optimistic message (on retry)
+    List<ConversationMessageItem> currentMessages;
+    final existingMsgs = state.currentConversation!.messages;
+    if (isRetry &&
+        existingMsgs.isNotEmpty &&
+        existingMsgs.last.role == 'user' &&
+        existingMsgs.last.content == clean) {
+      currentMessages = existingMsgs;
+    } else {
+      final optimisticUserMsg = ConversationMessageItem(
+        id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+        conversationId: activeId,
+        role: 'user',
+        content: clean,
+        citations: const [],
+        hasSufficientEvidence: true,
+        createdAt: DateTime.now(),
+      );
+      currentMessages = [
+        ...existingMsgs,
+        optimisticUserMsg,
+      ];
+    }
 
     state = state.copyWith(
       isSendingMessage: true,
@@ -340,37 +400,86 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
 
     final conversationalReply = ConversationalIntent.detect(clean);
 
-    try {
-      var assistantMsg = await _dataSource.sendConversationMessage(
-        conversationId: activeId,
-        query: clean,
-      );
-
-      // Guardrail: Greetings and conversational chitchat should NEVER show insufficient notes or random note excerpts
-      if (conversationalReply != null) {
-        assistantMsg = ConversationMessageItem(
-          id: assistantMsg.id,
-          conversationId: assistantMsg.conversationId,
-          role: 'assistant',
-          content: conversationalReply,
-          citations: const [],
-          hasSufficientEvidence: true,
-          createdAt: assistantMsg.createdAt,
+    // If it's pure chit-chat / greeting, reply locally and never fail due to network drops!
+    if (conversationalReply != null) {
+      try {
+        await _dataSource.sendConversationMessage(
+          conversationId: activeId,
+          query: clean,
         );
+      } catch (_) {
+        // Silently tolerate server/network issues for conversational chitchat
       }
+
+      final assistantMsg = ConversationMessageItem(
+        id: 'chat_${DateTime.now().millisecondsSinceEpoch}',
+        conversationId: activeId,
+        role: 'assistant',
+        content: conversationalReply,
+        citations: const [],
+        hasSufficientEvidence: true,
+        createdAt: DateTime.now(),
+      );
 
       final withAssistant = [
         ...currentMessages,
         assistantMsg,
       ];
 
-      // Also refresh the conversation summary title if it was default
       final updatedList = state.conversations.map((c) {
         if (c.id == activeId) {
           return ConversationSummary(
             id: c.id,
             userId: c.userId,
-            title: c.title == 'New Conversation' ? (clean.length > 25 ? '${clean.substring(0, 25)}...' : clean) : c.title,
+            title: c.title == 'New Conversation'
+                ? (clean.length > 25 ? '${clean.substring(0, 25)}...' : clean)
+                : c.title,
+            messageCount: withAssistant.length,
+            lastMessagePreview: assistantMsg.content,
+            createdAt: c.createdAt,
+            updatedAt: DateTime.now(),
+          );
+        }
+        return c;
+      }).toList();
+
+      state = state.copyWith(
+        isSendingMessage: false,
+        conversations: updatedList,
+        currentConversation: ConversationDetail(
+          id: state.currentConversation!.id,
+          userId: state.currentConversation!.userId,
+          title: state.currentConversation!.title,
+          createdAt: state.currentConversation!.createdAt,
+          updatedAt: DateTime.now(),
+          messages: withAssistant,
+        ),
+        clearError: true,
+      );
+      return;
+    }
+
+    // Memory-seeking query: requires retrieval
+    try {
+      final assistantMsg = await _dataSource.sendConversationMessage(
+        conversationId: activeId,
+        query: clean,
+      );
+
+      final withAssistant = [
+        ...currentMessages,
+        assistantMsg,
+      ];
+
+      // Refresh conversation summary title
+      final updatedList = state.conversations.map((c) {
+        if (c.id == activeId) {
+          return ConversationSummary(
+            id: c.id,
+            userId: c.userId,
+            title: c.title == 'New Conversation'
+                ? (clean.length > 25 ? '${clean.substring(0, 25)}...' : clean)
+                : c.title,
             messageCount: withAssistant.length,
             lastMessagePreview: assistantMsg.content,
             createdAt: c.createdAt,
@@ -396,8 +505,17 @@ class ConversationNotifier extends StateNotifier<ConversationState> {
     } catch (e) {
       state = state.copyWith(
         isSendingMessage: false,
-        errorMessage: 'Failed to send message: $e',
+        errorMessage: FriendlyError.toFriendlyMessage(e),
+        isNetworkError: FriendlyError.isNetworkError(e),
+        lastFailedQuery: clean,
       );
+    }
+  }
+
+  Future<void> retryLastMessage() async {
+    final query = state.lastFailedQuery;
+    if (query != null && query.isNotEmpty) {
+      await sendMessage(query, isRetry: true);
     }
   }
 }
