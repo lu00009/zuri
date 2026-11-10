@@ -135,3 +135,4 @@ def send_verification_email(to_email: str, code: str) -> bool:
         logger.error(f"Failed to send email to {to_email} via Gmail SMTP: {e}", exc_info=True)
         # Even if SMTP fails on network/credentials, we don't crash, we log it
         return False
+

@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -85,6 +85,41 @@ class Settings(BaseSettings):
         elif isinstance(v, (list, tuple)):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
+
+    @model_validator(mode="after")
+    def resolve_integrations(self) -> "Settings":
+        # Cloudinary resolution
+        if self.CLOUDINARY_URL and not (self.CLOUDINARY_CLOUD_NAME and self.CLOUDINARY_API_KEY and self.CLOUDINARY_API_SECRET):
+            try:
+                import re
+                match = re.match(r"^cloudinary:\/\/([^:]+):([^@]+)@(.+)$", self.CLOUDINARY_URL.strip())
+                if match:
+                    if not self.CLOUDINARY_API_KEY:
+                        self.CLOUDINARY_API_KEY = match.group(1)
+                    if not self.CLOUDINARY_API_SECRET:
+                        self.CLOUDINARY_API_SECRET = match.group(2)
+                    if not self.CLOUDINARY_CLOUD_NAME:
+                        self.CLOUDINARY_CLOUD_NAME = match.group(3)
+            except Exception:
+                pass
+        elif self.CLOUDINARY_CLOUD_NAME and self.CLOUDINARY_API_KEY and self.CLOUDINARY_API_SECRET and not self.CLOUDINARY_URL:
+            self.CLOUDINARY_URL = f"cloudinary://{self.CLOUDINARY_API_KEY}:{self.CLOUDINARY_API_SECRET}@{self.CLOUDINARY_CLOUD_NAME}"
+
+        # SMTP fallback aliases from environment
+        import os
+        if not self.SMTP_USER:
+            self.SMTP_USER = os.getenv("GMAIL_USER") or os.getenv("MAIL_USERNAME") or os.getenv("SMTP_USERNAME")
+        if not self.SMTP_PASSWORD:
+            self.SMTP_PASSWORD = (
+                os.getenv("GMAIL_PASSWORD")
+                or os.getenv("GMAIL_APP_PASSWORD")
+                or os.getenv("MAIL_PASSWORD")
+                or os.getenv("SMTP_PASS")
+            )
+        if not self.SMTP_FROM_EMAIL and self.SMTP_USER:
+            self.SMTP_FROM_EMAIL = self.SMTP_USER
+
+        return self
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":

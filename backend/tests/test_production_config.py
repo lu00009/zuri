@@ -5,7 +5,7 @@ from app.core.config import Settings
 
 def test_development_allows_default_secret():
     """Development environment permits the default secret for local setup."""
-    s = Settings(ENVIRONMENT="development")
+    s = Settings(ENVIRONMENT="development", DATABASE_URL="sqlite:///./pocketbrain.db")
     assert s.ENVIRONMENT == "development"
     assert s.DATABASE_URL.startswith("sqlite")
 
@@ -71,7 +71,8 @@ def test_allowed_origins_includes_firebase_hosting():
 
 def test_postgresql_url_standardization():
     """Verify legacy postgres:// URLs are standardized to postgresql://."""
-    from app.db.session import db_url
-    # When initialized with sqlite in tests, verify dialect check
-    assert db_url.startswith("sqlite")
+    from app.db.session import get_normalized_db_url
+    normalized = get_normalized_db_url("postgres://user:pass@ep-demo.neon.tech/neondb")
+    assert normalized.startswith("postgresql://")
+    assert "sslmode=require" in normalized
 
