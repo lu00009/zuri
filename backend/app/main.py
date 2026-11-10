@@ -6,10 +6,12 @@ from app.db.base import Base
 from app.db.session import engine
 import app.models  # noqa: F401
 
-# In development and test environments, auto-create tables if missing.
-# In production, schema migrations are explicitly applied via Alembic migrations.
-if settings.ENVIRONMENT.lower() != "production":
+# Auto-create tables if missing on startup
+try:
     Base.metadata.create_all(bind=engine)
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).warning("Database initialization note: %s", e)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

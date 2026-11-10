@@ -2,6 +2,7 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import settings
+from app.db.session import get_normalized_db_url
 from app.models import Base
 
 # this is the Alembic Config object, which provides
@@ -12,10 +13,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set SQLAlchemy URL from application settings, standardizing legacy postgres:// to postgresql://
-alembic_db_url = settings.DATABASE_URL
-if alembic_db_url.startswith("postgres://"):
-    alembic_db_url = alembic_db_url.replace("postgres://", "postgresql://", 1)
+# Set SQLAlchemy URL from application settings, standardizing PostgreSQL and Neon SSL
+alembic_db_url = get_normalized_db_url(settings.DATABASE_URL)
 config.set_main_option("sqlalchemy.url", alembic_db_url)
 
 target_metadata = Base.metadata
