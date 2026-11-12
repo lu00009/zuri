@@ -14,11 +14,21 @@ class GoogleAuthResult {
 }
 
 class GoogleSignInService {
+  // Public Google OAuth Web Client ID (from Google Cloud Console / backend .env)
+  static const String defaultClientId =
+      '104826039730-f12ele7dk3cuvth2gie25o10cbs22obo.apps.googleusercontent.com';
+
   // Compile-time environment configuration (--dart-define=GOOGLE_CLIENT_ID=...)
-  static const String clientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
+  static const String clientId = String.fromEnvironment(
+    'GOOGLE_CLIENT_ID',
+    defaultValue: defaultClientId,
+  );
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: clientId.isNotEmpty ? clientId : null,
+    // Web requires clientId, and serverClientId MUST be null.
+    // Android requires serverClientId to request an OpenID Connect idToken from Google Play Services.
+    clientId: kIsWeb ? (clientId.isNotEmpty ? clientId : defaultClientId) : null,
+    serverClientId: !kIsWeb ? (clientId.isNotEmpty ? clientId : defaultClientId) : null,
     scopes: const ['email', 'profile', 'openid'],
   );
 
@@ -26,6 +36,12 @@ class GoogleSignInService {
   /// Returns null if the user cancelled the prompt.
   static Future<GoogleAuthResult?> signIn() async {
     try {
+      try {
+        if (await _googleSignIn.isSignedIn()) {
+          await _googleSignIn.signOut();
+        }
+      } catch (_) {}
+
       final account = await _googleSignIn.signIn();
       if (account == null) {
         return null; // User cancelled
@@ -49,7 +65,12 @@ class GoogleSignInService {
       final errStr = e.toString();
       debugPrint('GoogleSignInService error: $errStr');
 
-      if (errStr.contains('popup_closed') || errStr.contains('cancelled') || errStr.contains('canceled')) {
+      // 12501 is Android SIGN_IN_CANCELLED
+      if (errStr.contains('popup_closed') ||
+          errStr.contains('cancelled') ||
+          errStr.contains('canceled') ||
+          errStr.contains('sign_in_canceled') ||
+          errStr.contains('12501')) {
         return null;
       }
       rethrow;

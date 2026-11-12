@@ -16,10 +16,16 @@ Future<void> handleGoogleSignInFlow(BuildContext context, WidgetRef ref) async {
     return;
   }
 
-  // If Google SDK was unavailable or unconfigured, show dialog fallback
+  // Display error message via SnackBar if authentication failed (not cancelled)
   final error = ref.read(authProvider).errorMessage;
-  if (error != null && context.mounted) {
-    await showGoogleSignInDialog(context, ref);
+  if (error != null && error.isNotEmpty && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error),
+        backgroundColor: Colors.red[700],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 }
 
