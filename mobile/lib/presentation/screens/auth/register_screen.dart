@@ -6,6 +6,7 @@ import '../../providers/sync_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../widgets/google_auth_dialog.dart';
 import '../../widgets/google_logo.dart';
+import '../../widgets/recovery_code_dialog.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -52,15 +53,25 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Future<void> _submitRegistration() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final success = await ref.read(authProvider.notifier).register(
+    final recoveryCode = await ref.read(authProvider.notifier).register(
           name: _nameController.text,
           email: _emailController.text,
           password: _passwordController.text,
         );
 
-    if (success && mounted) {
+    if (recoveryCode != null && mounted) {
       ref.read(syncProvider.notifier).syncNow();
-      context.go('/');
+      if (recoveryCode.isNotEmpty) {
+        await RecoveryCodeDialog.show(
+          context: context,
+          recoveryCode: recoveryCode,
+          onConfirmed: () {
+            if (mounted) context.go('/');
+          },
+        );
+      } else {
+        context.go('/');
+      }
     }
   }
 
@@ -292,6 +303,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         if (value.length < 6) {
                           return 'Password must be at least 6 characters';
                         }
+                        if (RegExp(r'^[0-9]+$').hasMatch(value)) {
+                          return 'Password cannot consist solely of digits';
+                        }
                         return null;
                       },
                     ),
@@ -393,7 +407,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           ? null
                           : () {
                               ref.read(authProvider.notifier).clearError();
-                              showGoogleSignInDialog(context, ref);
+                              handleGoogleSignInFlow(context, ref);
                             },
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 15),

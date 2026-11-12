@@ -14,7 +14,7 @@ class AuthRepositoryImpl implements AuthRepository {
   });
 
   @override
-  Future<AuthUser> register({
+  Future<RegistrationResult> register({
     required String email,
     required String password,
     String name = '',
@@ -25,8 +25,9 @@ class AuthRepositoryImpl implements AuthRepository {
       name: name,
     );
     final user = AuthUser.fromJson(response);
+    final recoveryCode = response['recovery_code'] as String? ?? '';
     await saveCachedUser(user);
-    return user;
+    return RegistrationResult(user: user, recoveryCode: recoveryCode);
   }
 
   @override
@@ -46,16 +47,17 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<AuthUser> googleAuth({
-    required String email,
+    required String idToken,
+    String? clientId,
+    String? email,
     String? name,
-    String? idToken,
     String? googleId,
   }) async {
     await remoteDataSource.googleAuth(
+      idToken: idToken,
+      clientId: clientId,
       email: email,
       name: name,
-      idToken: idToken,
-      googleId: googleId,
     );
     final profile = await remoteDataSource.getMe();
     final user = AuthUser.fromJson(profile);
@@ -64,9 +66,31 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<String> recoveryReset({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    final response = await remoteDataSource.recoveryReset(
+      email: email,
+      recoveryCode: recoveryCode,
+      newPassword: newPassword,
+    );
+    return response['message'] as String? ?? 'Password reset successfully';
+  }
+
+  @override
+  Future<String> regenerateRecoveryCode() async {
+    return remoteDataSource.regenerateRecoveryCode();
+  }
+
+  @override
   Future<String> forgotPassword(String email) async {
-    final response = await remoteDataSource.forgotPassword(email);
-    return response['message'] as String? ?? 'Verification code sent to your email';
+    return recoveryReset(
+      email: email,
+      recoveryCode: '',
+      newPassword: '',
+    );
   }
 
   @override
@@ -75,12 +99,11 @@ class AuthRepositoryImpl implements AuthRepository {
     required String code,
     required String newPassword,
   }) async {
-    final response = await remoteDataSource.resetPassword(
+    return recoveryReset(
       email: email,
-      code: code,
+      recoveryCode: code,
       newPassword: newPassword,
     );
-    return response['message'] as String? ?? 'Password reset successfully';
   }
 
   @override

@@ -1,7 +1,7 @@
 import '../entities/auth_user.dart';
 
 abstract class AuthRepository {
-  Future<AuthUser> register({
+  Future<RegistrationResult> register({
     required String email,
     required String password,
     String name = '',
@@ -13,11 +13,20 @@ abstract class AuthRepository {
   });
 
   Future<AuthUser> googleAuth({
-    required String email,
+    required String idToken,
+    String? clientId,
+    String? email,
     String? name,
-    String? idToken,
     String? googleId,
   });
+
+  Future<String> recoveryReset({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  });
+
+  Future<String> regenerateRecoveryCode();
 
   Future<String> forgotPassword(String email);
 

@@ -23,6 +23,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   sqflite_common_ffi_web: ^1.2.0
   image_picker: ^1.2.4
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:

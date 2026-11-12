@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/services/google_sign_in_service.dart';
 import '../../core/utils/friendly_error.dart';
 import '../../data/datasources/local/app_database.dart';
 import '../../data/datasources/local/secure_token_storage.dart';
@@ -218,7 +219,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> register({
+  Future<String?> register({
     required String email,
     required String password,
     String name = '',
@@ -229,23 +230,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
 
     try {
-      await _repository.register(
+      final result = await _repository.register(
         email: email.trim(),
         password: password,
         name: name.trim(),
       );
-      // Automatically log in newly registered user
-      final user = await _repository.login(
-        email: email.trim(),
-        password: password,
-      );
       state = state.copyWith(
         status: AuthStatus.authenticated,
-        user: user,
+        user: result.user,
         isOffline: false,
         clearError: true,
       );
-      return true;
+      return result.recoveryCode;
     } on DioException catch (e) {
       final message = FriendlyError.toFriendlyMessage(
         e,
@@ -255,20 +251,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
         status: AuthStatus.failure,
         errorMessage: message,
       );
-      return false;
+      return null;
     } catch (e) {
       state = state.copyWith(
         status: AuthStatus.failure,
         errorMessage: FriendlyError.toFriendlyMessage(e),
       );
-      return false;
+      return null;
     }
   }
 
   Future<bool> loginWithGoogle({
-    required String email,
-    String? name,
     String? idToken,
+    String? email,
+    String? name,
     String? googleId,
   }) async {
     state = state.copyWith(
@@ -277,12 +273,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
 
     try {
+      String? token = idToken;
+      String? userEmail = email;
+      String? userName = name;
+
+      // If no token passed, invoke Google Sign-In SDK
+      if (token == null || token.isEmpty) {
+        final googleResult = await GoogleSignInService.signIn();
+        if (googleResult == null) {
+          // User dismissed or cancelled the Google prompt
+          state = state.copyWith(status: AuthStatus.unauthenticated);
+          return false;
+        }
+        token = googleResult.idToken;
+        userEmail = googleResult.email;
+        userName = googleResult.displayName;
+      }
+
       final user = await _repository.googleAuth(
-        email: email.trim(),
-        name: name?.trim(),
-        idToken: idToken,
+        idToken: token,
+        clientId: GoogleSignInService.clientId,
+        email: userEmail,
+        name: userName,
         googleId: googleId,
       );
+
       state = state.copyWith(
         status: AuthStatus.authenticated,
         user: user,
@@ -301,11 +316,53 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return false;
     } catch (e) {
+      final errStr = e.toString();
+      final friendly = errStr.contains('sign_in_failed') || errStr.contains('PlatformException')
+          ? 'Google Sign-In is unavailable or cancelled. Please try again or use email sign-in.'
+          : FriendlyError.toFriendlyMessage(e);
+
       state = state.copyWith(
         status: AuthStatus.failure,
-        errorMessage: FriendlyError.toFriendlyMessage(e),
+        errorMessage: friendly,
       );
       return false;
+    }
+  }
+
+  Future<String> recoveryReset({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    try {
+      final message = await _repository.recoveryReset(
+        email: email.trim(),
+        recoveryCode: recoveryCode.trim(),
+        newPassword: newPassword,
+      );
+      return message;
+    } on DioException catch (e) {
+      final msg = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Invalid email address or recovery code.',
+      );
+      throw Exception(msg);
+    } catch (e) {
+      throw Exception(FriendlyError.toFriendlyMessage(e));
+    }
+  }
+
+  Future<String> regenerateRecoveryCode() async {
+    try {
+      return await _repository.regenerateRecoveryCode();
+    } on DioException catch (e) {
+      final msg = FriendlyError.toFriendlyMessage(
+        e,
+        defaultFallback: 'Could not regenerate recovery code.',
+      );
+      throw Exception(msg);
+    } catch (e) {
+      throw Exception(FriendlyError.toFriendlyMessage(e));
     }
   }
 

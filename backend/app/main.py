@@ -6,9 +6,23 @@ from app.db.base import Base
 from app.db.session import engine
 import app.models  # noqa: F401
 
-# Auto-create tables if missing on startup
+# Auto-create tables if missing on startup and ensure columns exist
 try:
     Base.metadata.create_all(bind=engine)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        url_str = str(engine.url).lower()
+        if "postgresql" in url_str or "postgres" in url_str:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_code_hash VARCHAR(255);"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);"))
+            conn.commit()
+        elif "sqlite" in url_str:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
+            if cols and "recovery_code_hash" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN recovery_code_hash VARCHAR(255);"))
+            if cols and "google_id" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN google_id VARCHAR(255);"))
+            conn.commit()
 except Exception as e:
     import logging
     logging.getLogger(__name__).warning("Database initialization note: %s", e)

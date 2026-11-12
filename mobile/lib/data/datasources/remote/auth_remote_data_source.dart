@@ -15,12 +15,21 @@ class AuthRemoteDataSource {
     final response = await _apiClient.dio.post(
       '/auth/register',
       data: {
-        'email': email,
-        'name': name,
+        'email': email.trim(),
+        'name': name.trim(),
         'password': password,
       },
     );
-    return response.data as Map<String, dynamic>;
+    final data = response.data as Map<String, dynamic>;
+    final accessToken = data['access_token'] as String?;
+    final refreshToken = data['refresh_token'] as String?;
+    if (accessToken != null && refreshToken != null) {
+      await _apiClient.saveTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+      );
+    }
+    return data;
   }
 
   Future<Map<String, dynamic>> login({
@@ -113,23 +122,45 @@ class AuthRemoteDataSource {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> googleAuth({
+  Future<Map<String, dynamic>> recoveryReset({
     required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    final response = await _apiClient.dio.post(
+      '/auth/recovery-reset',
+      data: {
+        'email': email.trim(),
+        'recovery_code': recoveryCode.trim(),
+        'new_password': newPassword,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<String> regenerateRecoveryCode() async {
+    final response = await _apiClient.dio.post('/auth/recovery-code/regenerate');
+    final data = response.data as Map<String, dynamic>;
+    return data['recovery_code'] as String;
+  }
+
+  Future<Map<String, dynamic>> googleAuth({
+    required String idToken,
+    String? clientId,
+    String? email,
     String? name,
-    String? idToken,
-    String? googleId,
   }) async {
     final payload = <String, dynamic>{
-      'email': email.trim(),
+      'id_token': idToken.trim(),
     };
+    if (clientId != null && clientId.isNotEmpty) {
+      payload['client_id'] = clientId.trim();
+    }
+    if (email != null && email.isNotEmpty) {
+      payload['email'] = email.trim();
+    }
     if (name != null && name.isNotEmpty) {
       payload['name'] = name.trim();
-    }
-    if (idToken != null) {
-      payload['id_token'] = idToken;
-    }
-    if (googleId != null) {
-      payload['google_id'] = googleId;
     }
 
     final response = await _apiClient.dio.post(

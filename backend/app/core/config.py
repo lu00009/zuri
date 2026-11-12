@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = (
         "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
     )
+    JWT_SECRET_KEY: str | None = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -57,6 +58,7 @@ class Settings(BaseSettings):
 
     # Google OAuth configuration
     GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env"),
@@ -88,6 +90,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_integrations(self) -> "Settings":
+        # JWT Secret Key alias resolution
+        if self.JWT_SECRET_KEY and self.JWT_SECRET_KEY.strip():
+            self.SECRET_KEY = self.JWT_SECRET_KEY.strip()
+
         # Cloudinary resolution
         if self.CLOUDINARY_URL and not (self.CLOUDINARY_CLOUD_NAME and self.CLOUDINARY_API_KEY and self.CLOUDINARY_API_SECRET):
             try:

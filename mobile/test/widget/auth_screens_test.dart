@@ -13,13 +13,14 @@ class MockAuthRepository implements AuthRepository {
   bool registerCalled = false;
 
   @override
-  Future<AuthUser> register({
+  Future<RegistrationResult> register({
     required String email,
     required String password,
     String name = '',
   }) async {
     registerCalled = true;
-    return AuthUser(id: 'u1', email: email, name: name);
+    final user = AuthUser(id: 'u1', email: email, name: name);
+    return RegistrationResult(user: user, recoveryCode: 'ABCD-EFGH-JKLM-NPQR');
   }
 
   @override
@@ -33,13 +34,24 @@ class MockAuthRepository implements AuthRepository {
 
   @override
   Future<AuthUser> googleAuth({
-    required String email,
+    required String idToken,
+    String? clientId,
+    String? email,
     String? name,
-    String? idToken,
     String? googleId,
   }) async {
-    return AuthUser(id: 'u-google', email: email, name: name ?? 'Google User');
+    return AuthUser(id: 'u-google', email: email ?? 'g@example.com', name: name ?? 'Google User');
   }
+
+  @override
+  Future<String> recoveryReset({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async => 'Reset successful';
+
+  @override
+  Future<String> regenerateRecoveryCode() async => 'ABCD-EFGH-JKLM-NPQR';
 
   @override
   Future<String> forgotPassword(String email) async => 'Code sent';
@@ -198,6 +210,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(mockRepo.registerCalled, isTrue);
+
+      // Verify RecoveryCodeDialog appears with recovery code and requires confirmation
+      expect(find.text('Save Your Recovery Code'), findsOneWidget);
+      expect(find.byKey(const Key('recovery_code_text')), findsOneWidget);
+      expect(find.byKey(const Key('copy_recovery_code_button')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('recovery_code_saved_checkbox')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('recovery_code_continue_button')));
+      await tester.pumpAndSettle();
+
       expect(find.text('Home Screen'), findsOneWidget);
     });
 

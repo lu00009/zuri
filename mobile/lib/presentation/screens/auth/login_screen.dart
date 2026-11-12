@@ -315,7 +315,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ? null
                           : () {
                               ref.read(authProvider.notifier).clearError();
-                              showGoogleSignInDialog(context, ref);
+                              handleGoogleSignInFlow(context, ref);
                             },
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 15),

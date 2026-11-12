@@ -17,44 +17,135 @@ from app.db.session import get_db
 from app.models.password_reset import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
+import re
+import secrets
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.orm import Session
+from app.api.deps import get_current_user
+from app.core.config import settings
+from app.core.rate_limiter import auth_rate_limiter
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    generate_recovery_code,
+    get_password_hash,
+    normalize_recovery_code,
+    verify_google_id_token,
+    verify_password,
+)
+from app.db.session import get_db
+from app.models.password_reset import PasswordResetToken
+from app.models.refresh_token import RefreshToken
+from app.models.user import User
 from app.schemas.token import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     GoogleAuthRequest,
     LogoutRequest,
+    RecoveryRegenerateResponse,
+    RecoveryResetRequest,
+    RecoveryResetResponse,
+    RecoveryStatusResponse,
     RefreshTokenRequest,
     ResetPasswordRequest,
     ResetPasswordResponse,
     Token,
 )
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import RegisterResponse, UserCreate, UserResponse
 from app.services.email_service import send_verification_email
 
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def get_client_ip(request: Request) -> str:
+    """Extract client IP respecting X-Forwarded-For when behind reverse proxies."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 def register(
     user_in: UserCreate,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
-) -> UserResponse:
-    """Register a new user account."""
-    existing = db.query(User).filter(User.email == user_in.email.lower()).first()
+) -> RegisterResponse:
+    """
+    Register a new user account with secure password hashing,
+    automatic session establishment, and a one-time account recovery code.
+    """
+    email_clean = user_in.email.strip().lower()
+    if not email_clean or "@" not in email_clean or "." not in email_clean.split("@")[-1]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid email address is required.",
+        )
+
+    # Password strength validation
+    password = user_in.password
+    if len(password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters.",
+        )
+    if password.isnumeric():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot consist solely of digits.",
+        )
+
+    existing = db.query(User).filter(User.email == email_clean).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A user with this email address already exists.",
         )
 
+    # Generate one-time account recovery code
+    recovery_code = generate_recovery_code()
+    recovery_code_hash = get_password_hash(normalize_recovery_code(recovery_code))
+
     user = User(
-        email=user_in.email.lower(),
-        name=user_in.name,
-        hashed_password=get_password_hash(user_in.password),
+        email=email_clean,
+        name=user_in.name.strip(),
+        hashed_password=get_password_hash(password),
+        recovery_code_hash=recovery_code_hash,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserResponse.model_validate(user)
+
+    # Automatically authenticate the newly registered user
+    jti = str(uuid.uuid4())
+    access_token = create_access_token(subject=user.id)
+    refresh_token = create_refresh_token(subject=user.id, jti=jti)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    token_record = RefreshToken(
+        token_jti=jti,
+        user_id=user.id,
+        expires_at=expires_at,
+        revoked=False,
+    )
+    db.add(token_record)
+    db.commit()
+
+    return RegisterResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        recovery_code=recovery_code,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -91,17 +182,31 @@ async def login_for_access_token(
             detail="Incorrect email or password",
         )
 
+    client_ip = get_client_ip(request)
+    rate_key = f"login:{client_ip}:{username.lower()}"
+    auth_rate_limiter.check_rate_limit(
+        rate_key,
+        max_attempts=5,
+        window_seconds=300,
+        action_name="login attempts",
+    )
+
     user = db.query(User).filter(User.email == username.lower()).first()
     if not user or not verify_password(password, user.hashed_password):
+        auth_rate_limiter.record_attempt(rate_key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect email or password",
         )
     if not user.is_active:
+        auth_rate_limiter.record_attempt(rate_key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user profile",
         )
+
+    # Reset rate limiting upon valid credentials
+    auth_rate_limiter.reset(rate_key)
 
     jti = str(uuid.uuid4())
     access_token = create_access_token(subject=user.id)
@@ -409,40 +514,81 @@ def reset_password(
 
 
 @router.post("/google", response_model=Token)
-def google_auth(
+async def google_auth(
     payload: GoogleAuthRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> Token:
-    """Authenticate or register a user with Google OAuth credentials."""
-    email = payload.email.strip().lower()
-    if not email or "@" not in email:
+    """
+    Authenticate or register a user with verified Google OAuth ID tokens.
+    Never trusts untrusted client claims; cryptographically validates token.
+    """
+    client_ip = get_client_ip(request)
+    rate_key = f"google:{client_ip}"
+    auth_rate_limiter.check_rate_limit(
+        rate_key,
+        max_attempts=15,
+        window_seconds=300,
+        action_name="Google authentication requests",
+    )
+
+    id_token = payload.id_token.strip()
+    if not id_token:
+        auth_rate_limiter.record_attempt(rate_key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Valid Google account email is required.",
+            detail="Google ID token is required for authentication.",
         )
+
+    try:
+        google_info = await verify_google_id_token(
+            token=id_token,
+            expected_client_id=payload.client_id,
+        )
+    except ValueError as err:
+        auth_rate_limiter.record_attempt(rate_key)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Google authentication failed: {err}",
+        )
+
+    email = google_info["email"]
+    name = google_info.get("name") or payload.name or email.split("@")[0]
+    google_id = google_info.get("google_id")
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        # Create user account for Google sign-in
-        user_name = (payload.name or email.split("@")[0]).strip()
+        # Create new user for verified Google profile
+        recovery_code = generate_recovery_code()
         user = User(
             email=email,
-            name=user_name,
+            name=name.strip(),
             hashed_password=get_password_hash(secrets.token_urlsafe(32)),
+            recovery_code_hash=get_password_hash(normalize_recovery_code(recovery_code)),
+            google_id=google_id,
             is_active=True,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
     elif not user.is_active:
+        auth_rate_limiter.record_attempt(rate_key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User account is inactive.",
         )
-    elif payload.name and not user.name:
-        user.name = payload.name
-        db.add(user)
+    else:
+        # Existing user: update missing metadata
+        if google_id and not user.google_id:
+            user.google_id = google_id
+            db.add(user)
+        if name and not user.name:
+            user.name = name.strip()
+            db.add(user)
         db.commit()
+
+    # Reset rate limiter upon successful Google auth
+    auth_rate_limiter.reset(rate_key)
 
     # Issue access and refresh tokens
     jti = str(uuid.uuid4())
@@ -464,4 +610,103 @@ def google_auth(
         refresh_token=refresh_token,
         token_type="bearer",
     )
+
+
+@router.post("/recovery-reset", response_model=RecoveryResetResponse)
+def recovery_reset(
+    payload: RecoveryResetRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> RecoveryResetResponse:
+    """
+    Reset user password using their offline Account Recovery Code (No Email OTP).
+    Rate-limited and protects account existence privacy.
+    Invalidates the recovery code immediately upon successful use.
+    """
+    client_ip = get_client_ip(request)
+    email_clean = payload.email.strip().lower()
+    rate_key = f"recovery:{client_ip}:{email_clean}"
+
+    auth_rate_limiter.check_rate_limit(
+        rate_key,
+        max_attempts=5,
+        window_seconds=900,
+        action_name="account recovery attempts",
+    )
+
+    # Password strength validation
+    new_password = payload.new_password
+    if len(new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters.",
+        )
+    if new_password.isnumeric():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password cannot consist solely of digits.",
+        )
+
+    user = db.query(User).filter(User.email == email_clean).first()
+    normalized_input_code = normalize_recovery_code(payload.recovery_code)
+
+    # Generic rejection if user doesn't exist, has no code, or code doesn't match
+    if (
+        not user
+        or not user.recovery_code_hash
+        or not normalized_input_code
+        or not verify_password(normalized_input_code, user.recovery_code_hash)
+    ):
+        auth_rate_limiter.record_attempt(rate_key)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email address or recovery code. If you have lost both, administrative verification is required.",
+        )
+
+    # Reset rate limit counter on success
+    auth_rate_limiter.reset(rate_key)
+
+    # Update password and invalidate the single-use recovery code
+    user.hashed_password = get_password_hash(new_password)
+    user.recovery_code_hash = None
+    db.add(user)
+
+    # Revoke all active refresh tokens for the user
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.revoked == False,
+    ).update({"revoked": True})
+    db.commit()
+
+    return RecoveryResetResponse(
+        message="Your password has been successfully reset. Please sign in with your new password.",
+    )
+
+
+@router.post("/recovery-code/regenerate", response_model=RecoveryRegenerateResponse)
+def regenerate_recovery_code(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> RecoveryRegenerateResponse:
+    """Generate and store a new recovery code for an authenticated user."""
+    new_code = generate_recovery_code()
+    current_user.recovery_code_hash = get_password_hash(normalize_recovery_code(new_code))
+    db.add(current_user)
+    db.commit()
+
+    return RecoveryRegenerateResponse(
+        recovery_code=new_code,
+        message="A new recovery code has been generated. Store it safely.",
+    )
+
+
+@router.get("/recovery-code/status", response_model=RecoveryStatusResponse)
+def get_recovery_code_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> RecoveryStatusResponse:
+    """Check whether the authenticated user has an active recovery code."""
+    return RecoveryStatusResponse(
+        has_recovery_code=bool(current_user.recovery_code_hash),
+    )
+
 

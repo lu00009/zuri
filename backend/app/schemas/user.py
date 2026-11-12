@@ -17,3 +17,11 @@ class UserResponse(UserBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RegisterResponse(UserResponse):
+    recovery_code: str
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+

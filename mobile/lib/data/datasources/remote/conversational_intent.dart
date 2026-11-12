@@ -80,9 +80,9 @@ class ConversationalIntent {
       return "Why do programmers prefer dark mode? Because light attracts bugs! 😄 What would you like to explore next?";
     }
 
-    // 3. How are you / check-ins (including shorthands like 'how is u', 'how r u', 'hru', 'wyd', 'wbu')
+    // 3. How are you / check-ins (including shorthands like 'how is u', 'how r u', 'hru', 'wyd', 'wbu', 'what s up', 'sup')
     if (RegExp(
-      r'\b(how\s*(are|is|r)\s*(you|u|ya|things|everything)|hru|how\s*u\s*(doin|doing)|hows\s*(it\s*going|everything|your\s*day)|how\s*is\s*it\s*going|whats?\s*(up|new|good)|wyd|wbu)\b',
+      r'\b(how\s*(are|is|r)\s*(you|u|ya|things|everything)|hru|how\s*u\s*(doin|doing)|hows\s*(it\s*going|everything|your\s*day)|how\s*is\s*it\s*going|whats?\s*(s\s*)?(up|new|good)|sup|wyd|wbu)\b',
     ).hasMatch(normalized)) {
       return "I'm doing great, thank you for asking! 😊 How are you doing today? We can chat, brainstorm, or explore your saved notes.";
     }
@@ -96,18 +96,32 @@ class ConversationalIntent {
     }
 
     // 5. Identity & About Zuri
-    if (RegExp(r'\b(who\s+are\s+you|what\s+is\s+your\s+name|what\s+are\s+you|tell\s+me\s+about\s+yourself|introduce\s+yourself|who\s+made\s+you|who\s+created\s+you|are\s+you\s+(an\s+)?ai|what\s+is\s+zuri|who\s+is\s+zuri)\b').hasMatch(normalized)) {
+    if (RegExp(r'\b(who\s+are\s+you|what\s+is\s+your\s+name|what\s+are\s+you|tell\s+me\s+about\s+yourself|introduce\s+yourself|who\s+made\s+you|who\s+created\s+you|are\s+you\s+(an\s+)?ai|are\s+you\s+(a\s+)?human|what\s+is\s+zuri|who\s+is\s+zuri|where\s+are\s+you\s+from|can\s+you\s+talk)\b').hasMatch(normalized)) {
       return "I'm Zuri, your personal AI assistant and memory companion! I help you remember ideas, organize notes, connect related thoughts, and chat with you naturally anytime.";
     }
 
     // 6. Capabilities & Help
-    if (RegExp(r'\b(what\s+can\s+you\s+do|how\s+can\s+you\s+help|what\s+do\s+you\s+do|what\s+are\s+your\s+features|help\s+me|help)\b').hasMatch(normalized)) {
+    if (RegExp(r'\b(what\s+can\s+you\s+do|how\s+can\s+you\s+help|what\s+do\s+you\s+do|what\s+are\s+your\s+features|what\s+can\s+i\s+do(\s+here)?|how\s+(does\s+this|to\s+use\s+this)\s*work|help\s+me|help)\b').hasMatch(normalized)) {
       return "Here is what I can do for you:\n"
           "• Answer questions based on your saved notes and memories\n"
           "• Remember conversation context across follow-up questions\n"
           "• Connect related ideas across your notebooks\n"
           "• Chat with you naturally and keep your thoughts organized\n\n"
           "Feel free to ask me anything about your notes, or just chat!";
+    }
+
+    // 6b. Conversational prompts and questions
+    if (RegExp(r'\b(tell\s+me\s+more|go\s+on|continue|elaborate)\b').hasMatch(normalized)) {
+      return "I'd love to tell you more! Could you specify what topic, note, or idea you'd like to dive into?";
+    }
+    if (RegExp(r'\b(can\s+i\s+ask|i\s+have\s+a\s+question|got\s+a\s+question|quick\s+question)\b').hasMatch(normalized)) {
+      return "Of course! Ask away—I'm listening and ready to help.";
+    }
+    if (RegExp(r'\b(tell\s+me\s+a\s+fact|interesting\s+fact|random\s+fact)\b').hasMatch(normalized)) {
+      return "Did you know that taking handwritten or structured digital notes improves concept retention by over 30%? What would you like to explore next?";
+    }
+    if (RegExp(r'\b(nice\s+to\s+meet\s+you|pleased\s+to\s+meet\s+you|good\s+to\s+see\s+you)\b').hasMatch(normalized)) {
+      return "Wonderful to connect with you too! What can I help you work on or remember today?";
     }
 
     // 7. Greetings (e.g. 'hi', 'hello', 'hey', 'good morning', 'yo', 'sup')

@@ -68,14 +68,19 @@ class FakeAuthRepository implements AuthRepository {
   FakeAuthRepository(this.tokenStorage);
 
   @override
-  Future<AuthUser> register({
+  Future<RegistrationResult> register({
     required String email,
     required String password,
     String name = '',
   }) async {
     final user = AuthUser(id: 'new-id-123', email: email, name: name);
     currentUser = user;
-    return user;
+    await tokenStorage.saveTokens(
+      accessToken: 'reg-access-token-123',
+      refreshToken: 'reg-refresh-token-456',
+    );
+    await saveCachedUser(user);
+    return RegistrationResult(user: user, recoveryCode: 'ABCD-EFGH-JKLM-NPQR');
   }
 
   @override
@@ -98,19 +103,34 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<AuthUser> googleAuth({
-    required String email,
+    required String idToken,
+    String? clientId,
+    String? email,
     String? name,
-    String? idToken,
     String? googleId,
   }) async {
     await tokenStorage.saveTokens(
       accessToken: 'google-access-token-123',
       refreshToken: 'google-refresh-token-456',
     );
-    final user = AuthUser(id: 'google-id-123', email: email, name: name ?? 'Google User');
+    final user = AuthUser(id: 'google-id-123', email: email ?? 'google@example.com', name: name ?? 'Google User');
     currentUser = user;
     await saveCachedUser(user);
     return user;
+  }
+
+  @override
+  Future<String> recoveryReset({
+    required String email,
+    required String recoveryCode,
+    required String newPassword,
+  }) async {
+    return 'Password reset successfully';
+  }
+
+  @override
+  Future<String> regenerateRecoveryCode() async {
+    return 'WXYZ-EFGH-JKLM-NPQR';
   }
 
   @override
@@ -264,12 +284,13 @@ void main() {
       final notifier = AuthNotifier(repository);
       await notifier.initialize();
 
-      final success = await notifier.register(
+      final recoveryCode = await notifier.register(
         name: 'Bob',
         email: 'bob@example.com',
         password: 'password123',
       );
-      expect(success, isTrue);
+      expect(recoveryCode, isNotNull);
+      expect(recoveryCode, 'ABCD-EFGH-JKLM-NPQR');
       expect(notifier.state.status, AuthStatus.authenticated);
       expect(notifier.state.user?.email, 'bob@example.com');
     });

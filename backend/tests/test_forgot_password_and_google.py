@@ -62,6 +62,7 @@ def test_google_auth_flow(client: TestClient, db_session: Session):
     response = client.post(
         "/api/v1/auth/google",
         json={
+            "id_token": "mock-google-token:googleuser@gmail.com:Google User",
             "email": "googleuser@gmail.com",
             "name": "Google User",
             "google_id": "google-123456",
@@ -81,6 +82,7 @@ def test_google_auth_flow(client: TestClient, db_session: Session):
     response2 = client.post(
         "/api/v1/auth/google",
         json={
+            "id_token": "mock-google-token:googleuser@gmail.com:Google User",
             "email": "googleuser@gmail.com",
             "name": "Google User Updated",
         },

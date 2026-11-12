@@ -48,9 +48,30 @@ class ResetPasswordResponse(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    id_token: str | None = None
-    email: str
+    id_token: str
+    client_id: str | None = None
+    email: str | None = None
     name: str | None = ""
     google_id: str | None = None
+
+
+class RecoveryResetRequest(BaseModel):
+    email: str
+    recovery_code: str
+    new_password: str
+
+
+class RecoveryResetResponse(BaseModel):
+    message: str
+
+
+class RecoveryRegenerateResponse(BaseModel):
+    recovery_code: str
+    message: str
+
+
+class RecoveryStatusResponse(BaseModel):
+    has_recovery_code: bool
+
 
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
@@ -12,62 +13,38 @@ class ForgotPasswordScreen extends ConsumerStatefulWidget {
 }
 
 class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
-  final _emailFormKey = GlobalKey<FormState>();
-  final _resetFormKey = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
 
   final _emailController = TextEditingController();
-  final _codeController = TextEditingController();
+  final _recoveryCodeController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  bool _isCodeSent = false;
+  final _emailFocusNode = FocusNode();
+  final _recoveryCodeFocusNode = FocusNode();
+  final _newPasswordFocusNode = FocusNode();
+  final _confirmPasswordFocusNode = FocusNode();
+
   bool _isLoading = false;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
-  String? _statusMessage;
   String? _errorMessage;
 
   @override
   void dispose() {
+    _emailFocusNode.dispose();
+    _recoveryCodeFocusNode.dispose();
+    _newPasswordFocusNode.dispose();
+    _confirmPasswordFocusNode.dispose();
     _emailController.dispose();
-    _codeController.dispose();
+    _recoveryCodeController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleSendCode() async {
-    if (!_emailFormKey.currentState!.validate()) return;
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _statusMessage = null;
-    });
-
-    try {
-      final email = _emailController.text.trim();
-      final msg = await ref.read(authProvider.notifier).forgotPassword(email);
-
-      if (mounted) {
-        setState(() {
-          _isCodeSent = true;
-          _isLoading = false;
-          _statusMessage = msg;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
-    }
-  }
-
   Future<void> _handleResetPassword() async {
-    if (!_resetFormKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
@@ -76,12 +53,12 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
     try {
       final email = _emailController.text.trim();
-      final code = _codeController.text.trim();
+      final recoveryCode = _recoveryCodeController.text.trim();
       final newPassword = _newPasswordController.text;
 
-      final msg = await ref.read(authProvider.notifier).resetPassword(
+      final msg = await ref.read(authProvider.notifier).recoveryReset(
             email: email,
-            code: code,
+            recoveryCode: recoveryCode,
             newPassword: newPassword,
           );
 
@@ -90,21 +67,26 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           _isLoading = false;
         });
 
-        // Show dialog and navigate to login
+        // Show celebratory success dialog and route to login
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.green, size: 28),
-                SizedBox(width: 8),
-                Text('Password Reset!'),
+                SizedBox(width: 10),
+                Expanded(child: Text('Password Reset!')),
               ],
             ),
-            content: Text(msg),
+            content: Text(
+              msg,
+              style: const TextStyle(fontSize: 14, height: 1.4),
+            ),
             actions: [
               FilledButton(
+                key: const Key('reset_success_login_button'),
                 onPressed: () {
                   Navigator.of(dialogContext).pop();
                   context.go('/login');
@@ -125,6 +107,48 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     }
   }
 
+  void _showLostCodeHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.shield_outlined, color: Colors.amber, size: 26),
+            SizedBox(width: 10),
+            Expanded(child: Text('Lost Recovery Code?')),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'For your privacy and security, Zuri does not send email OTPs and does not store unhashed passwords.',
+              style: TextStyle(fontSize: 14, height: 1.4),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'If you have lost both your password and your recovery code, account recovery requires an administrative identity-verification process.',
+              style: TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w600),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Please contact your workspace administrator or support with your registered email.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Understood'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -135,18 +159,11 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            if (_isCodeSent) {
-              setState(() {
-                _isCodeSent = false;
-                _errorMessage = null;
-                _statusMessage = null;
-              });
-            } else {
-              context.pop();
-            }
+            ref.read(authProvider.notifier).clearError();
+            context.pop();
           },
         ),
-        title: Text(_isCodeSent ? 'Enter Verification Code' : 'Reset Password'),
+        title: const Text('Account Recovery'),
         actions: [
           IconButton(
             key: const Key('forgot_password_theme_toggle_button'),
@@ -167,319 +184,280 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Icon Header
-                    Center(
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          _isCodeSent ? Icons.mark_email_read_outlined : Icons.lock_reset,
-                          size: 38,
-                          color: theme.colorScheme.primary,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Header Icon
+                      Center(
+                        child: Container(
+                          width: 68,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.vpn_key_rounded,
+                            size: 34,
+                            color: theme.colorScheme.primary,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                    Text(
-                      _isCodeSent ? 'Check Your Gmail' : 'Forgot Password?',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-
-                    Text(
-                      _isCodeSent
-                          ? 'We sent a 6-digit verification code to ${_emailController.text}. Enter it below along with your new password.'
-                          : 'Enter your account email address and we will send a 6-digit verification code to your Gmail.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Status / Success Message
-                    if (_statusMessage != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                      Text(
+                        'Reset Password with Recovery Code',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _statusMessage!,
-                                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+
+                      Text(
+                        'Enter your registered email and the 16-character recovery code you saved when creating your account.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Error Banner
+                      if (_errorMessage != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline, color: theme.colorScheme.error, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _errorMessage!,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onErrorContainer,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // Email Field
+                      TextFormField(
+                        key: const Key('forgot_password_email_input'),
+                        controller: _emailController,
+                        focusNode: _emailFocusNode,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'Registered Email Address',
+                          hintText: 'name@example.com',
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your email';
+                          }
+                          if (!value.contains('@') || !value.contains('.')) {
+                            return 'Please enter a valid email address';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
-                    ],
 
-                    // Error Message
-                    if (_errorMessage != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(12),
+                      // Recovery Code Field
+                      TextFormField(
+                        key: const Key('verification_code_input'),
+                        controller: _recoveryCodeController,
+                        focusNode: _recoveryCodeFocusNode,
+                        autocorrect: false,
+                        textInputAction: TextInputAction.next,
+                        textCapitalization: TextCapitalization.characters,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9\-]')),
+                        ],
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          letterSpacing: 2,
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline, color: theme.colorScheme.error, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                  color: theme.colorScheme.onErrorContainer,
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ],
+                        decoration: InputDecoration(
+                          labelText: '16-Character Recovery Code',
+                          hintText: 'ABCD-EFGH-JKLM-NPQR',
+                          prefixIcon: const Icon(Icons.key_outlined),
+                          helperText: 'Enter with or without hyphens',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
                         ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your recovery code';
+                          }
+                          final clean = value.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+                          if (clean.length < 12) {
+                            return 'Recovery code must be 16 characters';
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
-                    ],
 
-                    if (!_isCodeSent) ...[
-                      // STEP 1: Enter email
-                      Form(
-                        key: _emailFormKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextFormField(
-                              key: const Key('forgot_password_email_input'),
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              autocorrect: false,
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => _handleSendCode(),
-                              decoration: InputDecoration(
-                                labelText: 'Email address',
-                                hintText: 'name@example.com',
-                                prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Please enter your email';
-                                }
-                                if (!value.contains('@') || !value.contains('.')) {
-                                  return 'Please enter a valid email';
-                                }
-                                return null;
-                              },
+                      // New Password Field
+                      TextFormField(
+                        key: const Key('reset_new_password_input'),
+                        controller: _newPasswordController,
+                        focusNode: _newPasswordFocusNode,
+                        obscureText: _obscureNewPassword,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'New Password',
+                          hintText: '••••••••',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureNewPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                             ),
-                            const SizedBox(height: 24),
+                            onPressed: () {
+                              setState(() {
+                                _obscureNewPassword = !_obscureNewPassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your new password';
+                          }
+                          if (value.length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          if (RegExp(r'^[0-9]+$').hasMatch(value)) {
+                            return 'Password cannot consist solely of digits';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
 
-                            FilledButton(
-                              key: const Key('send_verification_code_button'),
-                              onPressed: _isLoading ? null : _handleSendCode,
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                      // Confirm New Password Field
+                      TextFormField(
+                        key: const Key('reset_confirm_password_input'),
+                        controller: _confirmPasswordController,
+                        focusNode: _confirmPasswordFocusNode,
+                        obscureText: _obscureConfirmPassword,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleResetPassword(),
+                        decoration: InputDecoration(
+                          labelText: 'Confirm New Password',
+                          hintText: '••••••••',
+                          prefixIcon: const Icon(Icons.lock_reset_outlined),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please confirm your new password';
+                          }
+                          if (value != _newPasswordController.text) {
+                            return 'Passwords do not match';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Reset Action Button
+                      FilledButton(
+                        key: const Key('reset_password_submit_button'),
+                        onPressed: _isLoading ? null : _handleResetPassword,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text(
+                                'Reset Password',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Text(
-                                      'Send Verification Code',
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                    ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Lost recovery code assistance
+                      TextButton(
+                        key: const Key('lost_recovery_code_help_button'),
+                        onPressed: _showLostCodeHelpDialog,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.help_outline, size: 16),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'Lost both password and recovery code?',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ] else ...[
-                      // STEP 2: Enter code & reset password
-                      Form(
-                        key: _resetFormKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextFormField(
-                              key: const Key('verification_code_input'),
-                              controller: _codeController,
-                              keyboardType: TextInputType.number,
-                              maxLength: 6,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 22, letterSpacing: 6, fontWeight: FontWeight.bold),
-                              decoration: InputDecoration(
-                                labelText: '6-Digit Verification Code',
-                                hintText: '123456',
-                                counterText: '',
-                                prefixIcon: const Icon(Icons.pin_outlined),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Please enter the 6-digit code';
-                                }
-                                if (value.trim().length != 6) {
-                                  return 'Verification code must be 6 digits';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
 
-                            TextFormField(
-                              key: const Key('reset_new_password_input'),
-                              controller: _newPasswordController,
-                              obscureText: _obscureNewPassword,
-                              decoration: InputDecoration(
-                                labelText: 'New Password',
-                                hintText: '••••••••',
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureNewPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureNewPassword = !_obscureNewPassword;
-                                    });
-                                  },
-                                ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your new password';
-                                }
-                                if (value.length < 6) {
-                                  return 'Password must be at least 6 characters';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            TextFormField(
-                              key: const Key('reset_confirm_password_input'),
-                              controller: _confirmPasswordController,
-                              obscureText: _obscureConfirmPassword,
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => _handleResetPassword(),
-                              decoration: InputDecoration(
-                                labelText: 'Confirm New Password',
-                                hintText: '••••••••',
-                                prefixIcon: const Icon(Icons.lock_reset_outlined),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureConfirmPassword = !_obscureConfirmPassword;
-                                    });
-                                  },
-                                ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please confirm your new password';
-                                }
-                                if (value != _newPasswordController.text) {
-                                  return 'Passwords do not match';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 24),
-
-                            FilledButton(
-                              key: const Key('reset_password_submit_button'),
-                              onPressed: _isLoading ? null : _handleResetPassword,
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Text(
-                                      'Reset Password',
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                    ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            TextButton.icon(
-                              onPressed: _isLoading
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        _isCodeSent = false;
-                                        _statusMessage = null;
-                                        _errorMessage = null;
-                                      });
-                                    },
-                              icon: const Icon(Icons.arrow_back, size: 16),
-                              label: const Text('Change Email or Resend Code'),
-                            ),
-                          ],
+                      const SizedBox(height: 8),
+                      Center(
+                        child: TextButton(
+                          onPressed: () => context.go('/login'),
+                          child: const Text('Back to Sign In'),
                         ),
                       ),
                     ],
-
-                    const SizedBox(height: 24),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => context.go('/login'),
-                        child: const Text('Back to Sign In'),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -489,4 +467,3 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     );
   }
 }
-

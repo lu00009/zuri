@@ -5,6 +5,24 @@ import '../providers/auth_provider.dart';
 import '../providers/sync_provider.dart';
 import 'google_logo.dart';
 
+Future<void> handleGoogleSignInFlow(BuildContext context, WidgetRef ref) async {
+  final authNotifier = ref.read(authProvider.notifier);
+  authNotifier.clearError();
+
+  final success = await authNotifier.loginWithGoogle();
+  if (success && context.mounted) {
+    ref.read(syncProvider.notifier).syncNow();
+    context.go('/');
+    return;
+  }
+
+  // If Google SDK was unavailable or unconfigured, show dialog fallback
+  final error = ref.read(authProvider).errorMessage;
+  if (error != null && context.mounted) {
+    await showGoogleSignInDialog(context, ref);
+  }
+}
+
 Future<void> showGoogleSignInDialog(BuildContext context, WidgetRef ref) async {
   final emailController = TextEditingController();
   final nameController = TextEditingController();
@@ -131,9 +149,12 @@ Future<void> showGoogleSignInDialog(BuildContext context, WidgetRef ref) async {
                           localError = null;
                         });
 
+                        final email = emailController.text.trim();
+                        final name = nameController.text.trim();
                         final success = await ref.read(authProvider.notifier).loginWithGoogle(
-                              email: emailController.text.trim(),
-                              name: nameController.text.trim(),
+                              idToken: 'mock-google-token:$email:$name',
+                              email: email,
+                              name: name,
                             );
 
                         if (success) {

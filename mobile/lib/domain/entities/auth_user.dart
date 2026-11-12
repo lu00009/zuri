@@ -43,3 +43,13 @@ class AuthUser {
     );
   }
 }
+
+class RegistrationResult {
+  final AuthUser user;
+  final String recoveryCode;
+
+  const RegistrationResult({
+    required this.user,
+    required this.recoveryCode,
+  });
+}
