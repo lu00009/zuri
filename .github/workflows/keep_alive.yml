@@ -1,0 +1,22 @@
+name: Keep Render Backend Awake
+
+on:
+  schedule:
+    # Runs every 14 minutes (Render free tier goes to sleep after 15 minutes of inactivity)
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Health Check
+        run: |
+          echo "Pinging Render health endpoint..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://pocketbrain-8cp6.onrender.com/api/v1/health)
+          echo "Response HTTP Status: $STATUS"
+          if [ "$STATUS" -eq 200 ]; then
+            echo "Render backend is awake and healthy!"
+          else
+            echo "Notice: Endpoint returned status $STATUS"
+          fi
