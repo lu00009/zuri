@@ -6,14 +6,15 @@ class FriendlyError {
     if (error == null) return false;
 
     if (error is DioException) {
+      if (error.response != null) {
+        final statusCode = error.response?.statusCode;
+        return statusCode == 502 || statusCode == 503 || statusCode == 504;
+      }
+
       if (error.type == DioExceptionType.connectionTimeout ||
           error.type == DioExceptionType.sendTimeout ||
           error.type == DioExceptionType.receiveTimeout ||
           error.type == DioExceptionType.connectionError) {
-        return true;
-      }
-      final statusCode = error.response?.statusCode;
-      if (statusCode == 502 || statusCode == 503 || statusCode == 504) {
         return true;
       }
       final errStr = (error.error ?? '').toString().toLowerCase();
@@ -42,21 +43,27 @@ class FriendlyError {
     dynamic error, {
     String defaultFallback = 'Unable to complete your request. Please try again in a moment.',
   }) {
-    if (isNetworkError(error)) {
-      return 'Unable to connect to Zuri right now. Please check your internet connection and try again.';
-    }
-
-    if (error is DioException) {
+    // If the server returned an explicit response (e.g. 400, 401, 404, 422 with detail message),
+    // prioritize displaying the server's explanation.
+    if (error is DioException && error.response != null) {
       final data = error.response?.data;
       if (data is Map && data['detail'] != null) {
         return data['detail'].toString();
       }
-      if (error.response?.statusCode == 401) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 401) {
         return 'Your session has expired. Please log in again.';
       }
-      if (error.response?.statusCode == 404) {
+      if (statusCode == 404) {
         return 'The requested information could not be found.';
       }
+      if (statusCode == 502 || statusCode == 503 || statusCode == 504) {
+        return 'Unable to connect to Zuri right now. Please check your internet connection and try again.';
+      }
+    }
+
+    if (isNetworkError(error)) {
+      return 'Unable to connect to Zuri right now. Please check your internet connection and try again.';
     }
 
     return defaultFallback;

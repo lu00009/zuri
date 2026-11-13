@@ -6,11 +6,7 @@ class GoogleAuthResult {
   final String? email;
   final String? displayName;
 
-  GoogleAuthResult({
-    required this.idToken,
-    this.email,
-    this.displayName,
-  });
+  GoogleAuthResult({required this.idToken, this.email, this.displayName});
 }
 
 class GoogleSignInService {
@@ -27,8 +23,12 @@ class GoogleSignInService {
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
     // Web requires clientId, and serverClientId MUST be null.
     // Android requires serverClientId to request an OpenID Connect idToken from Google Play Services.
-    clientId: kIsWeb ? (clientId.isNotEmpty ? clientId : defaultClientId) : null,
-    serverClientId: !kIsWeb ? (clientId.isNotEmpty ? clientId : defaultClientId) : null,
+    clientId: kIsWeb
+        ? (clientId.isNotEmpty ? clientId : defaultClientId)
+        : null,
+    serverClientId: !kIsWeb
+        ? (clientId.isNotEmpty ? clientId : defaultClientId)
+        : null,
     scopes: const ['email', 'profile', 'openid'],
   );
 
@@ -83,4 +83,3 @@ class GoogleSignInService {
     } catch (_) {}
   }
 }
-
