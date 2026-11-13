@@ -16,7 +16,7 @@ class GoogleAuthResult {
 class GoogleSignInService {
   // Public Google OAuth Web Client ID (from Google Cloud Console / backend .env)
   static const String defaultClientId =
-      '104826039730-f12ele7dk3cuvth2gie25o10cbs22obo.apps.googleusercontent.com';
+      '104826039730-l05mam6uqutknbd2bgeceqamtfodngnl.apps.googleusercontent.com';
 
   // Compile-time environment configuration (--dart-define=GOOGLE_CLIENT_ID=...)
   static const String clientId = String.fromEnvironment(
