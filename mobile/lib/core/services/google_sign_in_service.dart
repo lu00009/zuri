@@ -48,16 +48,17 @@ class GoogleSignInService {
       }
 
       final auth = await account.authentication;
-      final idToken = auth.idToken;
+      // On Android/iOS, idToken is provided. On Web, signIn() provides an accessToken.
+      final token = auth.idToken ?? auth.accessToken;
 
-      if (idToken == null || idToken.isEmpty) {
+      if (token == null || token.isEmpty) {
         throw Exception(
-          'Google did not return an ID token. Ensure Google OAuth client ID is configured correctly.',
+          'Google did not return an authentication token. Please try again.',
         );
       }
 
       return GoogleAuthResult(
-        idToken: idToken,
+        idToken: token,
         email: account.email,
         displayName: account.displayName,
       );

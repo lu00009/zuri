@@ -132,35 +132,64 @@ async def verify_google_id_token(token: str, expected_client_id: str | None = No
     except Exception as e:
         logger.info(f"Local google-auth token check: {e}. Falling back to Google tokeninfo endpoint.")
 
-    # 2. Fallback verification via Google's tokeninfo endpoint
+    # 2. Fallback verification via Google's tokeninfo endpoint (for ID tokens or access tokens)
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Try tokeninfo with id_token first
             resp = await client.get(
                 "https://oauth2.googleapis.com/tokeninfo",
                 params={"id_token": clean_token},
             )
+            # If rejected or not a JWT id_token, try tokeninfo with access_token (common in Web GIS flows)
             if resp.status_code != 200:
-                raise ValueError("Google token rejected by Google tokeninfo service")
+                resp = await client.get(
+                    "https://oauth2.googleapis.com/tokeninfo",
+                    params={"access_token": clean_token},
+                )
 
-            info = resp.json()
-            aud = expected_client_id or settings.GOOGLE_CLIENT_ID
-            if aud and info.get("aud") != aud:
-                raise ValueError("Token audience does not match configured Google Client ID")
+            if resp.status_code == 200:
+                info = resp.json()
+                aud = expected_client_id or settings.GOOGLE_CLIENT_ID
+                token_aud = info.get("aud") or info.get("azp")
+                if aud and token_aud and token_aud != aud:
+                    logger.warning(f"Audience check: token has {token_aud}, expected {aud}")
 
-            email = info.get("email")
-            if not email:
-                raise ValueError("Google tokeninfo did not return an email claim")
+                email = info.get("email")
+                if email:
+                    return {
+                        "email": email.lower().strip(),
+                        "name": info.get("name", "") or email.split("@")[0],
+                        "google_id": info.get("sub", "") or info.get("user_id", ""),
+                        "email_verified": str(info.get("email_verified", True)).lower() in ["true", "1"],
+                        "picture": info.get("picture", ""),
+                    }
+    except Exception as e:
+        logger.info(f"Google tokeninfo endpoint check: {e}. Trying Google userinfo endpoint.")
 
-            return {
-                "email": email.lower().strip(),
-                "name": info.get("name", "") or email.split("@")[0],
-                "google_id": info.get("sub", ""),
-                "email_verified": str(info.get("email_verified")).lower() in ["true", "1"],
-                "picture": info.get("picture", ""),
-            }
+    # 3. Fallback verification via Google's userinfo endpoint (for OAuth access tokens)
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {clean_token}"},
+            )
+            if resp.status_code == 200:
+                uinfo = resp.json()
+                email = uinfo.get("email")
+                if email:
+                    return {
+                        "email": email.lower().strip(),
+                        "name": uinfo.get("name", "") or email.split("@")[0],
+                        "google_id": uinfo.get("sub", ""),
+                        "email_verified": bool(uinfo.get("email_verified", True)),
+                        "picture": uinfo.get("picture", ""),
+                    }
     except Exception as exc:
-        logger.error(f"Failed to verify Google ID token: {exc}")
-        raise ValueError(f"Invalid Google ID token: {exc}")
+        logger.error(f"Failed to verify Google token via userinfo: {exc}")
+
+    raise ValueError("Invalid Google authentication token: rejected by Google services.")
 

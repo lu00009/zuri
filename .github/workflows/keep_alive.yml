@@ -20,3 +20,4 @@ jobs:
           else
             echo "Notice: Endpoint returned status $STATUS"
           fi
+
