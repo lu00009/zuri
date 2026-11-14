@@ -32,9 +32,10 @@ class FriendlyError {
         rawStr.contains('connection refused') ||
         rawStr.contains('unreachable') ||
         rawStr.contains('failed host lookup') ||
+        rawStr.contains('network is unreachable') ||
+        rawStr.contains('os error') ||
         rawStr.contains('connection error') ||
         rawStr.contains('timed out') ||
-        rawStr.contains('clientexception') ||
         rawStr.contains('xmlhttprequest error');
   }
 
@@ -43,6 +44,8 @@ class FriendlyError {
     dynamic error, {
     String defaultFallback = 'Unable to complete your request. Please try again in a moment.',
   }) {
+    if (error == null) return defaultFallback;
+
     // If the server returned an explicit response (e.g. 400, 401, 404, 422 with detail message),
     // prioritize displaying the server's explanation.
     if (error is DioException && error.response != null) {
@@ -64,6 +67,18 @@ class FriendlyError {
 
     if (isNetworkError(error)) {
       return 'Unable to connect to Zuri right now. Please check your internet connection and try again.';
+    }
+
+    final rawStr = error.toString();
+    if (rawStr.contains('People API') || rawStr.contains('people.googleapis.com')) {
+      return 'Google People API is not enabled in your Google Cloud Console project. Please enable it in Google Cloud Console or use the official Google button.';
+    }
+
+    if (error is Exception) {
+      final cleaned = rawStr.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+      if (cleaned.isNotEmpty && !cleaned.toLowerCase().contains('xmlhttprequest') && !cleaned.toLowerCase().contains('socketexception')) {
+        return cleaned;
+      }
     }
 
     return defaultFallback;

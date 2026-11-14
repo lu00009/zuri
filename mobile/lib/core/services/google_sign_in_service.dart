@@ -32,6 +32,11 @@ class GoogleSignInService {
     scopes: const ['email', 'profile', 'openid'],
   );
 
+  static GoogleSignIn get instance => _googleSignIn;
+
+  static Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
+      _googleSignIn.onCurrentUserChanged;
+
   /// Initiates Google Sign-In flow and returns the verified ID token.
   /// Returns null if the user cancelled the prompt.
   static Future<GoogleAuthResult?> signIn() async {
@@ -73,6 +78,13 @@ class GoogleSignInService {
           errStr.contains('sign_in_canceled') ||
           errStr.contains('12501')) {
         return null;
+      }
+      if (errStr.contains('people.googleapis.com') ||
+          errStr.contains('People API') ||
+          (errStr.contains('ClientException') && errStr.contains('403'))) {
+        throw Exception(
+          'Google People API is not enabled in your Google Cloud Console project ($clientId). Please enable it at https://console.developers.google.com/apis/api/people.googleapis.com/overview or use the Google Sign-In button.',
+        );
       }
       rethrow;
     }

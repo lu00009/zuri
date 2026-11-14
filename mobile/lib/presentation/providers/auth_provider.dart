@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/services/google_sign_in_service.dart';
@@ -84,7 +85,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (_apiClient != null) {
       _apiClient.onSessionExpired = () => logout();
     }
+    _setupWebGoogleAuthListener();
     initialize();
+  }
+
+  void _setupWebGoogleAuthListener() {
+    if (kIsWeb) {
+      GoogleSignInService.onCurrentUserChanged.listen((account) async {
+        if (account != null && !state.isAuthenticated && state.status != AuthStatus.authenticating) {
+          try {
+            final auth = await account.authentication;
+            final token = auth.idToken ?? auth.accessToken;
+            if (token != null && token.isNotEmpty) {
+              await loginWithGoogle(
+                idToken: token,
+                email: account.email,
+                name: account.displayName,
+                googleId: account.id,
+              );
+            }
+          } catch (e) {
+            debugPrint('Web Google auto-auth error: $e');
+          }
+        }
+      });
+    }
   }
 
   Future<void> initialize() async {
@@ -317,9 +342,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     } catch (e) {
       final errStr = e.toString();
-      final friendly = errStr.contains('sign_in_failed') || errStr.contains('PlatformException')
-          ? 'Google Sign-In is unavailable or cancelled. Please try again or use email sign-in.'
-          : FriendlyError.toFriendlyMessage(e);
+      final friendly = errStr.contains('People API') || errStr.contains('people.googleapis.com')
+          ? FriendlyError.toFriendlyMessage(e)
+          : (errStr.contains('sign_in_failed') || errStr.contains('PlatformException'))
+              ? 'Google Sign-In is unavailable or cancelled. Please try again or use email sign-in.'
+              : FriendlyError.toFriendlyMessage(e);
 
       state = state.copyWith(
         status: AuthStatus.failure,

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../widgets/adaptive_google_sign_in_button.dart';
 import '../../widgets/google_auth_dialog.dart';
 import '../../widgets/google_logo.dart';
 import '../../widgets/recovery_code_dialog.dart';
@@ -401,29 +402,36 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     const SizedBox(height: 20),
 
                     // Google Sign-In Button
-                    OutlinedButton.icon(
-                      key: const Key('register_google_sign_in_button'),
-                      onPressed: authState.isLoading
-                          ? null
-                          : () {
-                              ref.read(authProvider.notifier).clearError();
-                              handleGoogleSignInFlow(context, ref);
-                            },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    AdaptiveGoogleSignInButton(
+                      isLoading: authState.isLoading,
+                      onPressed: () {
+                        ref.read(authProvider.notifier).clearError();
+                        handleGoogleSignInFlow(context, ref);
+                      },
+                      fallbackButton: OutlinedButton.icon(
+                        key: const Key('register_google_sign_in_button'),
+                        onPressed: authState.isLoading
+                            ? null
+                            : () {
+                                ref.read(authProvider.notifier).clearError();
+                                handleGoogleSignInFlow(context, ref);
+                              },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          side: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
                         ),
-                        side: BorderSide(
-                          color: theme.colorScheme.outlineVariant,
-                        ),
-                      ),
-                      icon: const GoogleLogoWidget(size: 20),
-                      label: const Text(
-                        'Continue with Google',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                        icon: const GoogleLogoWidget(size: 20),
+                        label: const Text(
+                          'Continue with Google',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
