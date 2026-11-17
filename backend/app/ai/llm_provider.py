@@ -290,7 +290,9 @@ class GroundedLocalLLMProvider(LLMProvider):
             return "You're very welcome! If there's anything else you'd like to check or remember, just let me know."
 
         # 10. Very short conversational statements (1 to 2 words that aren't specific technical nouns)
-        if num_words <= 2 and not re.search(r"\b(note|save|code|pass|key|email|task|todo|project|date|plan|meet|buy|call)\b", q_clean):
+        if q_clean in {"approve", "approved", "confirm", "confirmed", "save", "save it", "save this"}:
+            return None
+        if num_words <= 2 and not re.search(r"\b(note|save|approve|confirm|code|pass|key|email|task|todo|project|date|plan|meet|buy|call)\b", q_clean):
             return "I'm listening! Feel free to ask me anything about your notes, or share what you'd like to talk about."
 
         return None
@@ -336,7 +338,10 @@ class GroundedLocalLLMProvider(LLMProvider):
                                 "planned or what they want to write about. Do not generate a pre-filled schedule with fake tasks.\n"
                                 "3. When the user provides their tasks or details, format the schedule or note clearly, and always ask: "
                                 "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
-                                "4. If the user says 'approve', confirm that the note has been approved and saved to their notes."
+                                "4. If the user asks to add or append an item to an existing schedule or note (e.g. 'also add i have grocery too'), "
+                                "update the schedule or note by including the new item alongside the existing items, and ask: "
+                                "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
+                                "5. If the user says 'approve', confirm that the note has been approved and saved to their notes."
                             )
                         }]
                     },
@@ -384,7 +389,10 @@ class GroundedLocalLLMProvider(LLMProvider):
                             "planned or what they want to write about. Do not generate a pre-filled schedule with fake tasks.\n"
                             "3. When the user provides their tasks or details, format the schedule or note clearly, and always ask: "
                             "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
-                            "4. If the user says 'approve', confirm that the note has been approved and saved to their notes."
+                            "4. If the user asks to add or append an item to an existing schedule or note (e.g. 'also add i have grocery too'), "
+                            "update the schedule or note by including the new item alongside the existing items, and ask: "
+                            "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
+                            "5. If the user says 'approve', confirm that the note has been approved and saved to their notes."
                         ),
                     }
                 ]
@@ -541,6 +549,64 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "• Review and expand upon these initial thoughts.\n\n"
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
+
+        # 2b. Add / Append Item Intent (e.g. "also add i have grocery too", "add grocery too", "include dinner")
+        is_add_item = bool(
+            re.search(
+                r"\b(also\s+add|add\s+also|can\s+you\s+add|please\s+add|include|append|and\s+also|"
+                r"add\s+.*?to\s+(?:the\s+)?(?:schedule|routine|note|list)|add\s+.*?(?:too|as\s+well))\b",
+                q_clean,
+            )
+        )
+        if is_add_item:
+            # Clean the new item
+            new_item = re.sub(
+                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*(?:to\s+(?:it|my\s+schedule|my\s+notes?|this))?\s*(?:that\s+)?(?:i\s+have\s+)?",
+                "",
+                q,
+                flags=re.IGNORECASE,
+            )
+            new_item = re.sub(r"\s+(?:too|as\s+well|please)\.?$", "", new_item, flags=re.IGNORECASE).strip(" .:-")
+
+            # Look in conversation history for the most recent schedule or note containing items
+            draft_msg = None
+            if conversation_history:
+                for m in reversed(conversation_history):
+                    c = m.get("content", "")
+                    if m.get("role") == "assistant" and "•" in c:
+                        draft_msg = c
+                        break
+
+            if draft_msg and ("schedule" in draft_msg.lower() or "•" in draft_msg):
+                time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", draft_msg, re.IGNORECASE)
+                target_time = time_match.group(1).upper() if time_match else "9 PM"
+
+                bullet_items = []
+                for line in draft_msg.split("\n"):
+                    line = line.strip()
+                    if line.startswith("•") or line.startswith("-"):
+                        item_text = re.sub(r"^[•\-]\s*(?:\*\*[^\*]+\*\*:\s*)?", "", line).strip()
+                        if item_text:
+                            bullet_items.append(item_text)
+
+                if new_item:
+                    bullet_items.append(new_item.capitalize())
+
+                bullet_lines = [f"• **Part {idx + 1}**: {it}" for idx, it in enumerate(bullet_items)]
+                return (
+                    f"Here is your updated schedule for {target_time}:\n\n"
+                    f"📅 **{target_time} Schedule**\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+            else:
+                title = new_item.capitalize() if new_item else "Personal Note"
+                return (
+                    f"Here is your draft note on **{title}**:\n\n"
+                    f"# {title}\n\n"
+                    f"• {new_item.capitalize()}\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
 
         # 3. Check if following up to an assistant question in conversation history
         last_assistant_msg = ""

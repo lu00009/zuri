@@ -483,6 +483,36 @@ def test_agent_schedule_clarification_and_approval_flow(client, auth_headers_use
     assert "team meeting" in saved_note["content"].lower()
     assert "code review" in saved_note["content"].lower()
 
+    # 6. Step 4: User appends another item: "also add i have grocery too"
+    turn4 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "also add i have grocery too"},
+        headers=auth_headers_user_a,
+    )
+    assert turn4.status_code == 201
+    ans4 = turn4.json()["assistant_message"]["content"]
+    assert "grocery" in ans4.lower()
+    assert "team meeting" in ans4.lower() or "dinner" in ans4.lower()
+    assert "approve" in ans4.lower()
+
+    # 7. Step 5: User approves updated note
+    turn5 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "approve"},
+        headers=auth_headers_user_a,
+    )
+    assert turn5.status_code == 201
+    ans5 = turn5.json()["assistant_message"]["content"]
+    assert "approved" in ans5.lower()
+
+    # Verify updated note in database includes grocery
+    notes_res2 = client.get("/api/v1/notes", headers=auth_headers_user_a)
+    assert notes_res2.status_code == 200
+    updated_schedule_notes = [n for n in notes_res2.json()["items"] if "schedule" in n["title"].lower()]
+    assert len(updated_schedule_notes) >= 1
+    assert "grocery" in updated_schedule_notes[0]["content"].lower()
+
+
 
 
 

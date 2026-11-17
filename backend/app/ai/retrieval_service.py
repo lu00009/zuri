@@ -497,23 +497,44 @@ class RetrievalService:
             last_assistant_msg = next((m["content"] for m in reversed(history_list) if m["role"] == "assistant"), None)
             if last_assistant_msg and ("approve" in last_assistant_msg.lower() or "save this" in last_assistant_msg.lower() or "schedule" in last_assistant_msg.lower() or "draft" in last_assistant_msg.lower()):
                 title, content = self._extract_note_draft(last_assistant_msg)
-                new_note = Note(
-                    id=str(uuid.uuid4()),
-                    user_id=user_id,
-                    title=title,
-                    content=content,
-                    is_deleted=False,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
-                )
-                db.add(new_note)
-                db.flush()
-                self.sync_user_embeddings(db, user_id)
 
-                reply_text = (
-                    f"Approved! ✅ I have saved this to your notes under '**{title}**'. "
-                    "You can view and edit it in your notes anytime."
+                existing_note = (
+                    db.query(Note)
+                    .filter(
+                        Note.user_id == user_id,
+                        Note.title == title,
+                        Note.is_deleted.is_(False),
+                    )
+                    .order_by(Note.updated_at.desc())
+                    .first()
                 )
+                if existing_note:
+                    existing_note.content = content
+                    existing_note.updated_at = datetime.now(timezone.utc)
+                    db.flush()
+                    self.sync_user_embeddings(db, user_id)
+                    reply_text = (
+                        f"Approved! ✅ I have updated your note '**{title}**' with the latest details. "
+                        "You can view and edit it in your notes anytime."
+                    )
+                else:
+                    new_note = Note(
+                        id=str(uuid.uuid4()),
+                        user_id=user_id,
+                        title=title,
+                        content=content,
+                        is_deleted=False,
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    db.add(new_note)
+                    db.flush()
+                    self.sync_user_embeddings(db, user_id)
+
+                    reply_text = (
+                        f"Approved! ✅ I have saved this to your notes under '**{title}**'. "
+                        "You can view and edit it in your notes anytime."
+                    )
             else:
                 reply_text = "I'm ready to save when you have a note or schedule drafted! Tell me what you'd like to write or schedule first."
 
