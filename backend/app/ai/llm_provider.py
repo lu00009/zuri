@@ -328,10 +328,15 @@ class GroundedLocalLLMProvider(LLMProvider):
                     "systemInstruction": {
                         "parts": [{
                             "text": (
-                                "You are Zuri, an intelligent, empathetic personal AI assistant and memory companion. "
-                                "You help the user recall notes, draft writing, plan schedules, brainstorm ideas, "
-                                "and organize thoughts. Be clear, structured, and helpful. Use clean markdown formatting "
-                                "with bullet points."
+                                "You are Zuri, an intelligent, empathetic personal AI assistant and memory companion.\n"
+                                "CRITICAL RULES:\n"
+                                "1. NEVER invent, hallucinate, or fabricate activities or tasks that the user did not say.\n"
+                                "2. If the user asks you to write a schedule or note but has NOT provided their specific tasks or activities "
+                                "(e.g. 'i want you to write me scedule i have at 9 pm' or 'i want to write something'), you MUST ASK what they have "
+                                "planned or what they want to write about. Do not generate a pre-filled schedule with fake tasks.\n"
+                                "3. When the user provides their tasks or details, format the schedule or note clearly, and always ask: "
+                                "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
+                                "4. If the user says 'approve', confirm that the note has been approved and saved to their notes."
                             )
                         }]
                     },
@@ -371,8 +376,15 @@ class GroundedLocalLLMProvider(LLMProvider):
                     {
                         "role": "system",
                         "content": (
-                            "You are Zuri, an intelligent, empathetic personal AI assistant. "
-                            "Help the user draft, plan, schedule, and organize ideas with clean markdown formatting."
+                            "You are Zuri, an intelligent, empathetic personal AI assistant and memory companion.\n"
+                            "CRITICAL RULES:\n"
+                            "1. NEVER invent, hallucinate, or fabricate activities or tasks that the user did not say.\n"
+                            "2. If the user asks you to write a schedule or note but has NOT provided their specific tasks or activities "
+                            "(e.g. 'i want you to write me scedule i have at 9 pm' or 'i want to write something'), you MUST ASK what they have "
+                            "planned or what they want to write about. Do not generate a pre-filled schedule with fake tasks.\n"
+                            "3. When the user provides their tasks or details, format the schedule or note clearly, and always ask: "
+                            "'Would you like me to save this into your notes? Reply **approve** to save it.'\n"
+                            "4. If the user says 'approve', confirm that the note has been approved and saved to their notes."
                         ),
                     }
                 ]
@@ -441,30 +453,52 @@ class GroundedLocalLLMProvider(LLMProvider):
             time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", q_clean)
             target_time = time_match.group(1).upper() if time_match else None
 
-            # Check if evening / night / morning / afternoon
-            period_label = "Session"
-            if "pm" in q_clean or "evening" in q_clean or "night" in q_clean:
-                period_label = "Evening"
-            elif "am" in q_clean or "morning" in q_clean:
-                period_label = "Morning"
-            elif "afternoon" in q_clean:
-                period_label = "Afternoon"
+            # Check if user actually specified any activities or tasks
+            meta_words = {
+                "i", "want", "you", "to", "write", "me", "a", "an", "the", "scedule", "schedule",
+                "routine", "timetable", "agenda", "plan", "have", "at", "pm", "am", "tonight",
+                "tomorrow", "today", "for", "please", "can", "could", "make", "create", "draft",
+                "do", "get", "my", "our", "your", "something", "down", "up", "evening", "night",
+                "morning", "afternoon", "day", "week", "is", "it", "on", "in", "of", "and", "or",
+                "whats", "what", "give", "tell"
+            }
+            content_tokens = [
+                w for w in q_clean.split()
+                if w not in meta_words and not re.match(r"^\d+$", w)
+            ]
 
-            time_header = f"starting around {target_time}" if target_time else f"for your {period_label.lower()}"
+            # If user has NOT specified what they have planned, ALWAYS ask them what to write!
+            if not content_tokens:
+                if target_time:
+                    return (
+                        f"What do you have planned for {target_time}? "
+                        "Please tell me the activities or tasks you'd like on your schedule, and I'll draft it for you."
+                    )
+                else:
+                    return (
+                        "What activities or tasks do you have planned? "
+                        "Please tell me what you'd like on your schedule, and I'll draft it for you."
+                    )
 
+            # User gave specific activities in the same message (e.g. "schedule at 9 pm: meeting, dinner")
+            clean_sub = re.sub(
+                r"^(?:.*?)(?:scedule|schedule|routine|timetable|agenda|plan)\s*(?:(?:i\s+have\s+)?(?:at|for)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?[:,-]?\s*",
+                "",
+                q,
+                flags=re.IGNORECASE,
+            ).strip()
+            raw_parts = re.split(r",|;|\bthen\b|\n|\band\b", clean_sub if clean_sub else q)
+            items = [p.strip(" .:-") for p in raw_parts if p.strip(" .:-") and len(p.strip()) > 1]
+            if not items:
+                items = [" ".join(content_tokens)]
+
+            bullet_lines = [f"• **Part {idx + 1}**: {item.capitalize()}" for idx, item in enumerate(items)]
+            header_time = target_time or "Planned"
             return (
-                f"Here is a structured schedule {time_header}:\n\n"
-                f"📅 **{period_label} Focus Schedule" + (f" ({target_time} onwards)" if target_time else "") + "**\n"
-                f"• **" + (f"{target_time} – " if target_time else "Part 1: ") + "Preparation & Focus Setup**\n"
-                "  - Review your goals, set up your workspace, and eliminate notifications.\n"
-                "• **Part 2: Core Deep Work / Activity Block (45 mins)**\n"
-                "  - Dive into your primary task with full focus.\n"
-                "• **Part 3: Quick Rest & Reflection (10 mins)**\n"
-                "  - Step away, hydrate, and assess your progress.\n"
-                "• **Part 4: Wrap-up & Tomorrow's Priorities (15 mins)**\n"
-                "  - Wrap up ongoing items and outline your top 3 tasks for tomorrow.\n\n"
-                "Would you like me to tailor this for a specific activity (e.g. studying, work, fitness, or relaxing), "
-                "or save this directly as a new note in Zuri for you?"
+                f"Here is your schedule for {header_time}:\n\n"
+                f"📅 **{header_time} Schedule**\n"
+                + "\n".join(bullet_lines) + "\n\n"
+                "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
         # 2. Writing & Drafting Intent
@@ -478,31 +512,83 @@ class GroundedLocalLLMProvider(LLMProvider):
         )
         if is_writing_prompt:
             # Check if user gave a specific topic or just said "i want to write something"
-            topic_match = re.search(r"\b(?:about|on|for)\s+(.+)$", q_clean)
-            if topic_match and len(topic_match.group(1).strip()) > 3:
-                topic = topic_match.group(1).strip().title()
+            topic_match = re.search(r"\b(?:about|on|for|titled)\s+(.+)$", q_clean)
+            has_topic = topic_match and len(topic_match.group(1).strip()) > 3
+            writing_meta = {
+                "i", "want", "to", "write", "help", "me", "something", "draft", "start",
+                "writing", "lets", "let", "s", "a", "an", "the", "note", "notes", "down",
+                "can", "you", "please"
+            }
+            extra_tokens = [w for w in q_clean.split() if w not in writing_meta]
+
+            if not has_topic and len(extra_tokens) == 0:
                 return (
-                    f"Here is a draft note on **{topic}**:\n\n"
-                    f"# {topic}\n\n"
-                    "### Overview\n"
-                    f"A structured capture of ideas and key insights regarding {topic}.\n\n"
-                    "### Key Points & Notes\n"
-                    f"• **Core Concept**: Understanding the fundamental principles of {topic}.\n"
-                    "• **Actionable Takeaways**: Practical steps to implement or explore next.\n"
-                    "• **Questions & Open Ideas**: Areas for future research and reflection.\n\n"
-                    "### Next Steps\n"
-                    "• Review and expand upon these initial thoughts.\n\n"
-                    "Would you like me to save this as a new note in Zuri, or would you like to edit and add more details?"
+                    "What would you like to write about? Tell me what you'd like to put down "
+                    "(e.g. thoughts, tasks, meeting notes, or ideas) and I will format it for you."
                 )
-            else:
+
+            topic = topic_match.group(1).strip().title() if has_topic else " ".join(extra_tokens).title()
+            return (
+                f"Here is a draft note on **{topic}**:\n\n"
+                f"# {topic}\n\n"
+                "### Overview\n"
+                f"A structured capture of ideas and key insights regarding {topic}.\n\n"
+                "### Key Points & Notes\n"
+                f"• **Core Concept**: Understanding the fundamental principles of {topic}.\n"
+                "• **Actionable Takeaways**: Practical steps to implement or explore next.\n"
+                "• **Questions & Open Ideas**: Areas for future research and reflection.\n\n"
+                "### Next Steps\n"
+                "• Review and expand upon these initial thoughts.\n\n"
+                "Would you like me to save this into your notes? Reply 'approve' to save it."
+            )
+
+        # 3. Check if following up to an assistant question in conversation history
+        last_assistant_msg = ""
+        if conversation_history:
+            for m in reversed(conversation_history):
+                if m.get("role") == "assistant":
+                    last_assistant_msg = m.get("content", "")
+                    break
+
+        if last_assistant_msg:
+            # Did assistant previously ask what user has planned for schedule?
+            if "what do you have planned" in last_assistant_msg.lower() or "on your schedule" in last_assistant_msg.lower():
+                time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", last_assistant_msg, re.IGNORECASE)
+                target_time = time_match.group(1).upper() if time_match else "Upcoming"
+
+                # Parse activities from user query
+                raw_parts = re.split(r",|;|\bthen\b|\n|\band\b", q)
+                items = [p.strip(" .:-") for p in raw_parts if p.strip(" .:-") and len(p.strip()) > 1]
+                if not items:
+                    items = [q.strip()]
+
+                bullet_lines = []
+                for idx, item in enumerate(items):
+                    clean_item = re.sub(r"^(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|i\s+have|my\s+plan\s+is)\s*", "", item, flags=re.IGNORECASE).strip()
+                    bullet_lines.append(f"• **Part {idx + 1}**: {clean_item.capitalize()}")
+
                 return (
-                    "I'd love to help you write! What are you in the mood to work on today?\n\n"
-                    "Here are a few ways we can start:\n"
-                    "• **Draft a new note**: Give me a quick thought or topic, and I'll organize it with headings and key points.\n"
-                    "• **Plan or Schedule**: Outline an agenda, routine, or timeline for your day.\n"
-                    "• **Message or Email**: Tell me who it's for and the main objective, and I'll write a polished draft.\n"
-                    "• **Brainstorming or Brain Dump**: Share raw ideas, and we'll shape them into a structured document.\n\n"
-                    "Tell me what topic is on your mind, or start dictating your ideas!"
+                    f"Here is your schedule for {target_time}:\n\n"
+                    f"📅 **{target_time} Schedule**\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+            # Did assistant previously ask what user wants to write about?
+            if "what would you like to write about" in last_assistant_msg.lower():
+                raw_parts = re.split(r",|;|\n|\band\b", q)
+                items = [p.strip(" .:-") for p in raw_parts if p.strip(" .:-") and len(p.strip()) > 1]
+                title = items[0].capitalize() if items else "Personal Note"
+                if len(title.split()) > 6:
+                    title = "Personal Note"
+
+                bullet_lines = [f"• {item.capitalize()}" for item in items]
+                return (
+                    f"Here is your draft note on **{title}**:\n\n"
+                    f"# {title}\n\n"
+                    "### Details\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )
 
         # 3. To-Do / Checklist Intent
@@ -514,7 +600,7 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "• [ ] **Medium Priority**: Follow up on key messages & communications\n"
                 "• [ ] **Maintenance**: Quick review of ongoing notes & files\n"
                 "• [ ] **Wrap-up**: Outline tomorrow's top 3 objectives\n\n"
-                "Would you like me to customize this checklist for a specific project, or save it as a note in Zuri?"
+                "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
         # 4. Brainstorming & Idea Generation Intent

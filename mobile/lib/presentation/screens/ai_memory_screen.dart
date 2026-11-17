@@ -893,6 +893,32 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                         const SizedBox(height: 10),
                       ],
                       _buildAssistantContent(context, msg.content),
+                      if (msg.content.toLowerCase().contains('approve') &&
+                          (msg.content.toLowerCase().contains('save this') ||
+                              msg.content.toLowerCase().contains('reply') ||
+                              msg.content.toLowerCase().contains('note'))) ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: theme.colorScheme.primary,
+                            side: BorderSide(color: theme.colorScheme.primary.withAlpha(180)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () => _submitQuery('approve'),
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: const Text(
+                            'Approve & Save Note',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

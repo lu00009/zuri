@@ -418,5 +418,72 @@ def test_conversational_greetings_and_chit_chat(client, auth_headers_user_a):
     assert "9 pm" in reply9["content"].lower() or "9:00" in reply9["content"]
 
 
+def test_agent_schedule_clarification_and_approval_flow(client, auth_headers_user_a):
+    """
+    Tests the complete user journey:
+    1. User requests schedule without specifying activities.
+    2. Agent asks user what they have planned instead of hallucinating.
+    3. User provides actual activities.
+    4. Agent drafts the schedule and asks for approval ("Reply 'approve' to save it").
+    5. User replies 'approve'.
+    6. Agent confirms save, and the note is created in the user's database.
+    """
+    # 1. Start conversation
+    conv_res = client.post(
+        "/api/v1/ai/conversations",
+        json={"title": "Schedule Planning"},
+        headers=auth_headers_user_a,
+    )
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    # 2. Step 1: User asks for schedule without activities
+    turn1 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "i want you to write me scedule i have at 9 pm"},
+        headers=auth_headers_user_a,
+    )
+    assert turn1.status_code == 201
+    ans1 = turn1.json()["assistant_message"]["content"]
+    # Agent MUST ask what user has planned, not invent fake deep work activities
+    assert "what do you have planned" in ans1.lower()
+    assert "9" in ans1
+
+    # 3. Step 2: User provides their activities
+    turn2 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "team meeting, code review, then dinner with family"},
+        headers=auth_headers_user_a,
+    )
+    assert turn2.status_code == 201
+    ans2 = turn2.json()["assistant_message"]["content"]
+    assert "team meeting" in ans2.lower()
+    assert "code review" in ans2.lower()
+    assert "dinner with family" in ans2.lower()
+    assert "approve" in ans2.lower()
+
+    # 4. Step 3: User approves saving to notes
+    turn3 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "approve"},
+        headers=auth_headers_user_a,
+    )
+    assert turn3.status_code == 201
+    ans3 = turn3.json()["assistant_message"]["content"]
+    assert "approved" in ans3.lower()
+    assert "saved this to your notes" in ans3.lower()
+
+    # 5. Verify note was created in the database
+    notes_res = client.get("/api/v1/notes", headers=auth_headers_user_a)
+    assert notes_res.status_code == 200
+    user_notes = notes_res.json()["items"]
+    schedule_notes = [n for n in user_notes if "schedule" in n["title"].lower() or "team meeting" in n["content"].lower()]
+    assert len(schedule_notes) >= 1
+    saved_note = schedule_notes[0]
+    assert "team meeting" in saved_note["content"].lower()
+    assert "code review" in saved_note["content"].lower()
+
+
+
 
 

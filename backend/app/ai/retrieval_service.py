@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.ai.embedding_provider import compute_cosine_similarity, get_embedding_provider
@@ -410,6 +411,55 @@ class RetrievalService:
             unfinished_ideas=raw_recap["unfinished_ideas"],
         )
 
+    @staticmethod
+    def _is_approval_intent(query: str) -> bool:
+        q_clean = re.sub(r"[^\w\s]", " ", query.lower())
+        q_clean = re.sub(r"\s+", " ", q_clean).strip()
+        approval_words = {
+            "approve", "approved", "approve it", "yes", "yes please",
+            "save", "save it", "save this", "save note", "save to notes",
+            "write it to my notes", "add to notes", "add it to notes",
+            "yes save it", "yes please save it", "yes save this",
+            "confirm", "confirmed", "please save", "please save it",
+            "okay save it", "ok save it"
+        }
+        if q_clean in approval_words:
+            return True
+        if re.search(r"\b(approve|save\s+(this|it|to\s+notes?)|add\s+to\s+notes?)\b", q_clean):
+            if not re.search(r"\b(did\s+i|what\s+did|search|find|check)\b", q_clean):
+                return True
+        return False
+
+    @staticmethod
+    def _extract_note_draft(assistant_text: str) -> tuple[str, str]:
+        title = "Personal Note"
+        # Look for headers like 📅 **9:00 PM Schedule** or **Marketing Launch** or # Title
+        title_match = re.search(r"(?:📅\s*|\#+\s*)?\*\*([^\*\n]+(?:Schedule|Routine|Agenda|Note|Plan|List|[A-Za-z0-9\s]+))\*\*", assistant_text)
+        if title_match:
+            cand = title_match.group(1).strip()
+            if 3 < len(cand) < 60:
+                title = cand
+        elif re.search(r"^\#+\s+(.+)$", assistant_text, re.MULTILINE):
+            title = re.search(r"^\#+\s+(.+)$", assistant_text, re.MULTILINE).group(1).strip()
+
+        title = re.sub(r"^[📅📋📝\s]+", "", title).strip()
+        if not title:
+            title = "Personal Note"
+
+        # Content cleaning: strip intro line and trailing approval question
+        content = re.sub(r"^Here is (?:your|a) [^\n]+:\s*", "", assistant_text.strip(), flags=re.IGNORECASE)
+        content = re.sub(
+            r"\n*Would you like me to save this [^\n]*\?.*$",
+            "",
+            content,
+            flags=re.IGNORECASE | re.DOTALL,
+        ).strip()
+
+        if not content:
+            content = assistant_text.strip()
+
+        return title, content
+
     def ask_in_conversation(
         self,
         db: Session,
@@ -441,6 +491,77 @@ class RetrievalService:
             {"role": m.role, "content": m.content}
             for m in history_msgs
         ]
+
+        # 0. Approval Flow: If user replies "approve", "yes", "save it", create and save Note in DB
+        if self._is_approval_intent(query):
+            last_assistant_msg = next((m["content"] for m in reversed(history_list) if m["role"] == "assistant"), None)
+            if last_assistant_msg and ("approve" in last_assistant_msg.lower() or "save this" in last_assistant_msg.lower() or "schedule" in last_assistant_msg.lower() or "draft" in last_assistant_msg.lower()):
+                title, content = self._extract_note_draft(last_assistant_msg)
+                new_note = Note(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    title=title,
+                    content=content,
+                    is_deleted=False,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+                db.add(new_note)
+                db.flush()
+                self.sync_user_embeddings(db, user_id)
+
+                reply_text = (
+                    f"Approved! ✅ I have saved this to your notes under '**{title}**'. "
+                    "You can view and edit it in your notes anytime."
+                )
+            else:
+                reply_text = "I'm ready to save when you have a note or schedule drafted! Tell me what you'd like to write or schedule first."
+
+            user_msg = ConversationMessage(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                role="user",
+                content=query,
+                citations_json=None,
+                has_sufficient_evidence=True,
+            )
+            db.add(user_msg)
+            db.flush()
+
+            assistant_msg = ConversationMessage(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                role="assistant",
+                content=reply_text,
+                citations_json=None,
+                has_sufficient_evidence=True,
+            )
+            db.add(assistant_msg)
+            conversation.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(user_msg)
+            db.refresh(assistant_msg)
+
+            return ConversationMessageCreateResponse(
+                user_message=ConversationMessageResponse(
+                    id=user_msg.id,
+                    conversation_id=user_msg.conversation_id,
+                    role=user_msg.role,
+                    content=user_msg.content,
+                    citations=[],
+                    has_sufficient_evidence=True,
+                    created_at=user_msg.created_at,
+                ),
+                assistant_message=ConversationMessageResponse(
+                    id=assistant_msg.id,
+                    conversation_id=assistant_msg.conversation_id,
+                    role=assistant_msg.role,
+                    content=assistant_msg.content,
+                    citations=[],
+                    has_sufficient_evidence=True,
+                    created_at=assistant_msg.created_at,
+                ),
+            )
 
         # 1. Conversational & Agent intent check: Greetings, chit-chat, writing, scheduling, and generative agent tasks
         conversational_reply = self.llm_provider._detect_conversational_intent(query)
