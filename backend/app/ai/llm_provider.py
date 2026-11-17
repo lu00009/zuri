@@ -449,26 +449,27 @@ class GroundedLocalLLMProvider(LLMProvider):
 
         # Built-in Agent Engine:
 
-        # 1. Schedule / Timetable / Routine Intent (handling common misspellings like 'scedule')
+        # 1. Schedule / Timetable / Routine Intent (handling common misspellings like 'scedule', 'chedule')
         is_schedule_request = bool(
             re.search(
-                r"\b(scedule|schedule|routine|timetable|agenda|plan\s+my\s+(day|evening|night|morning|afternoon|week|tomorrow))\b",
+                r"\b(schedule|scedule|chedule|shedule|skedule|schedual|chedual|sched|routine|timetable|agenda|calendar|plan\s+my\s+(?:day|evening|night|morning|afternoon|week|tomorrow))\b",
                 q_clean,
             )
         )
         if is_schedule_request:
-            # Extract mentioned time if present (e.g., '9 pm', '9:00 pm', '9pm', '10 am', 'evening', etc.)
-            time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", q_clean)
-            target_time = time_match.group(1).upper() if time_match else None
+            # Extract mentioned time if present (e.g., '9 pm', '9:00 pm', '9pm', 'at 5', etc.)
+            time_match = re.search(r"\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", q_clean)
+            raw_time = time_match.group(1).upper() if time_match else None
+            target_time = f"{raw_time}:00" if raw_time and raw_time.isdigit() else raw_time
 
             # Check if user actually specified any activities or tasks
             meta_words = {
-                "i", "want", "you", "to", "write", "me", "a", "an", "the", "scedule", "schedule",
-                "routine", "timetable", "agenda", "plan", "have", "at", "pm", "am", "tonight",
-                "tomorrow", "today", "for", "please", "can", "could", "make", "create", "draft",
-                "do", "get", "my", "our", "your", "something", "down", "up", "evening", "night",
-                "morning", "afternoon", "day", "week", "is", "it", "on", "in", "of", "and", "or",
-                "whats", "what", "give", "tell"
+                "i", "want", "you", "to", "write", "me", "mea", "a", "an", "the", "scedule", "schedule",
+                "chedule", "shedule", "skedule", "schedual", "chedual", "routine", "timetable", "agenda",
+                "plan", "have", "at", "pm", "am", "tonight", "tomorrow", "today", "for", "please", "can",
+                "could", "make", "create", "draft", "do", "get", "my", "our", "your", "something", "down",
+                "up", "evening", "night", "morning", "afternoon", "day", "week", "is", "it", "on", "in",
+                "of", "and", "or", "whats", "what", "give", "tell", "which", "that", "note", "notes"
             }
             content_tokens = [
                 w for w in q_clean.split()
@@ -488,19 +489,24 @@ class GroundedLocalLLMProvider(LLMProvider):
                         "Please tell me what you'd like on your schedule, and I'll draft it for you."
                     )
 
-            # User gave specific activities in the same message (e.g. "schedule at 9 pm: meeting, dinner")
+            # User gave specific activities in the same message (e.g. "meeting at 5", "schedule at 9 pm: meeting, dinner")
             clean_sub = re.sub(
-                r"^(?:.*?)(?:scedule|schedule|routine|timetable|agenda|plan)\s*(?:(?:i\s+have\s+)?(?:at|for)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?[:,-]?\s*",
+                r"^(?:create|make|write|draft|take|new)?\s*(?:mea|me\s+a|a|me)?\s*(?:note|memo)?\s*(?:which|that|to)?\s*(?:schedule|scedule|chedule|shedule|plan)?\s*(?:my)?\s*",
                 "",
                 q,
                 flags=re.IGNORECASE,
             ).strip()
-            raw_parts = re.split(r",|;|\bthen\b|\n|\band\b", clean_sub if clean_sub else q)
+            # If time is attached like 'at 5', strip it from activity name
+            activity_clean = re.sub(r"\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?$", "", clean_sub, flags=re.IGNORECASE).strip()
+            raw_parts = re.split(r",|;|\bthen\b|\n|\band\b", activity_clean if activity_clean else clean_sub)
             items = [p.strip(" .:-") for p in raw_parts if p.strip(" .:-") and len(p.strip()) > 1]
             if not items:
                 items = [" ".join(content_tokens)]
 
-            bullet_lines = [f"• **Part {idx + 1}**: {item.capitalize()}" for idx, item in enumerate(items)]
+            bullet_lines = [
+                f"• **{target_time if (target_time and idx == 0) else f'Part {idx + 1}'}**: {item.capitalize()}"
+                for idx, item in enumerate(items)
+            ]
             header_time = target_time or "Planned"
             return (
                 f"Here is your schedule for {header_time}:\n\n"
@@ -509,10 +515,11 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 2. Writing & Drafting Intent
+        # 2. Writing & Drafting Intent (including 'create a note', 'make me a note', 'take a note')
         is_writing_prompt = bool(
             re.search(
-                r"\b(i\s+want\s+to\s+write|help\s+me\s+write|write\s+something|draft\s+something|"
+                r"\b((?:create|make|write|draft|take|add|save|start|new|record)\s+(?:mea\s+|me\s+a\s+|a\s+|me\s+)?(?:note|memo|entry|schedule|draft)|"
+                r"i\s+want\s+to\s+write|help\s+me\s+write|write\s+something|draft\s+something|"
                 r"start\s+writing|let'?s\s+write|write\s+(me\s+)?a\s+(note|story|poem|essay|email|post|letter|article)|"
                 r"write\s+(me\s+)?about|draft\s+(me\s+)?a)\b",
                 q_clean,
@@ -520,12 +527,12 @@ class GroundedLocalLLMProvider(LLMProvider):
         )
         if is_writing_prompt:
             # Check if user gave a specific topic or just said "i want to write something"
-            topic_match = re.search(r"\b(?:about|on|for|titled)\s+(.+)$", q_clean)
+            topic_match = re.search(r"\b(?:about|on|for|titled|which)\s+(.+)$", q_clean)
             has_topic = topic_match and len(topic_match.group(1).strip()) > 3
             writing_meta = {
                 "i", "want", "to", "write", "help", "me", "something", "draft", "start",
                 "writing", "lets", "let", "s", "a", "an", "the", "note", "notes", "down",
-                "can", "you", "please"
+                "can", "you", "please", "create", "make", "take", "new", "mea"
             }
             extra_tokens = [w for w in q_clean.split() if w not in writing_meta]
 

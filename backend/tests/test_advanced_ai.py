@@ -513,6 +513,52 @@ def test_agent_schedule_clarification_and_approval_flow(client, auth_headers_use
     assert "grocery" in updated_schedule_notes[0]["content"].lower()
 
 
+def test_agent_intent_create_note_schedule_colloquial(client, auth_headers_user_a):
+    """
+    Test user query with typos and colloquial phrasing:
+    'create mea note which chedule my meeting at 5'
+    Should recognize schedule intent without failing with 'insufficient information',
+    draft the schedule with 5:00 and Meeting, and allow saving upon approval.
+    """
+    create_conv = client.post(
+        "/api/v1/ai/conversations",
+        json={"title": "Colloquial Schedule"},
+        headers=auth_headers_user_a,
+    )
+    assert create_conv.status_code == 201
+    conv_id = create_conv.json()["id"]
+
+    turn1 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "create mea note which chedule my meeting at 5"},
+        headers=auth_headers_user_a,
+    )
+    assert turn1.status_code == 201
+    ans1 = turn1.json()["assistant_message"]["content"]
+    assert "insufficient information" not in ans1.lower()
+    assert "5:00" in ans1 or "5" in ans1
+    assert "meeting" in ans1.lower()
+    assert "approve" in ans1.lower()
+
+    # User approves
+    turn2 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "approve"},
+        headers=auth_headers_user_a,
+    )
+    assert turn2.status_code == 201
+    ans2 = turn2.json()["assistant_message"]["content"]
+    assert "approved" in ans2.lower()
+
+    # Verify saved in notes
+    notes_res = client.get("/api/v1/notes", headers=auth_headers_user_a)
+    assert notes_res.status_code == 200
+    matching_notes = [n for n in notes_res.json()["items"] if "5:00 schedule" in n["title"].lower() or "schedule" in n["title"].lower()]
+    assert len(matching_notes) >= 1
+    assert "meeting" in matching_notes[0]["content"].lower()
+
+
+
 
 
 
