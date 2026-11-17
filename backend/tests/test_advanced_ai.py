@@ -392,5 +392,31 @@ def test_conversational_greetings_and_chit_chat(client, auth_headers_user_a):
     assert len(reply7["citations"]) == 0
     assert "Zuri" in reply7["content"] or "hello" in reply7["content"].lower()
 
+    # 7. Agent Intent: Writing assistance ("i want to write something")
+    msg8 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "i want to write something"},
+        headers=auth_headers_user_a,
+    )
+    assert msg8.status_code == 201
+    reply8 = msg8.json()["assistant_message"]
+    assert reply8["has_sufficient_evidence"] is True
+    assert len(reply8["citations"]) == 0
+    assert "write" in reply8["content"].lower() or "help" in reply8["content"].lower()
+
+    # 8. Agent Intent: Schedule generation ("i want you to write me scedule i have at 9 pm")
+    msg9 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "i want you to write me scedule i have at 9 pm"},
+        headers=auth_headers_user_a,
+    )
+    assert msg9.status_code == 201
+    reply9 = msg9.json()["assistant_message"]
+    assert reply9["has_sufficient_evidence"] is True
+    assert len(reply9["citations"]) == 0
+    assert "schedule" in reply9["content"].lower()
+    assert "9 pm" in reply9["content"].lower() or "9:00" in reply9["content"]
+
+
 
 

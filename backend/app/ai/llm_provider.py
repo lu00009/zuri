@@ -295,6 +295,249 @@ class GroundedLocalLLMProvider(LLMProvider):
 
         return None
 
+    @classmethod
+    def _call_external_llm(
+        cls,
+        prompt: str,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> str | None:
+        """
+        Calls an external LLM (Gemini API, OpenAI, or Groq) if an API key is configured.
+        Returns the text completion or None if unconfigured or on failure.
+        """
+        from app.core.config import settings
+
+        # 1. Google Gemini API
+        if settings.GEMINI_API_KEY:
+            try:
+                import httpx
+
+                contents = []
+                if conversation_history:
+                    for m in conversation_history[-8:]:
+                        role = "user" if m.get("role") == "user" else "model"
+                        contents.append({"role": role, "parts": [{"text": m.get("content", "")}]})
+                contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+                url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+                    f"?key={settings.GEMINI_API_KEY}"
+                )
+                payload = {
+                    "contents": contents,
+                    "systemInstruction": {
+                        "parts": [{
+                            "text": (
+                                "You are Zuri, an intelligent, empathetic personal AI assistant and memory companion. "
+                                "You help the user recall notes, draft writing, plan schedules, brainstorm ideas, "
+                                "and organize thoughts. Be clear, structured, and helpful. Use clean markdown formatting "
+                                "with bullet points."
+                            )
+                        }]
+                    },
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 1000,
+                    },
+                }
+                with httpx.Client(timeout=12.0) as client:
+                    resp = client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts:
+                                text = parts[0].get("text", "").strip()
+                                if text:
+                                    return text
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Gemini LLM call failed: %s", e)
+
+        # 2. OpenAI / Groq API
+        api_key = settings.OPENAI_API_KEY or settings.GROQ_API_KEY
+        if api_key:
+            try:
+                import httpx
+
+                endpoint = (
+                    "https://api.openai.com/v1/chat/completions"
+                    if settings.OPENAI_API_KEY
+                    else "https://api.groq.com/openai/v1/chat/completions"
+                )
+                model = "gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-8b-instant"
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are Zuri, an intelligent, empathetic personal AI assistant. "
+                            "Help the user draft, plan, schedule, and organize ideas with clean markdown formatting."
+                        ),
+                    }
+                ]
+                if conversation_history:
+                    for m in conversation_history[-8:]:
+                        messages.append({"role": m.get("role", "user"), "content": m.get("content", "")})
+                messages.append({"role": "user", "content": prompt})
+
+                with httpx.Client(timeout=12.0) as client:
+                    resp = client.post(
+                        endpoint,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={"model": model, "messages": messages, "temperature": 0.7},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("OpenAI/Groq LLM call failed: %s", e)
+
+        return None
+
+    @classmethod
+    def _detect_agent_intent(
+        cls,
+        query: str,
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> str | None:
+        """
+        Detects if user is asking Zuri to act as an agent (e.g. write, draft, plan, schedule,
+        brainstorm, outline, summarize, create to-dos, or general helpful assistant tasks)
+        rather than searching existing saved notes.
+        """
+        q = query.strip()
+        q_clean = re.sub(r"[^\w\s]", " ", q.lower())
+        q_clean = re.sub(r"\s+", " ", q_clean).strip()
+        if not q_clean:
+            return None
+
+        # Exclude explicit knowledge-search queries targeting existing saved notes
+        memory_seeking = (
+            r"\b(what\s+did\s+i\s+(save|write|note)|in\s+my\s+notes?|from\s+my\s+notes?|"
+            r"my\s+saved\s+notes?|did\s+i\s+save|search\s+my\s+notes?|check\s+my\s+notes?|"
+            r"find\s+my\s+notes?)\b"
+        )
+        if re.search(memory_seeking, q_clean):
+            return None
+
+        # Check for external LLM first if API key configured
+        external_reply = cls._call_external_llm(query, conversation_history)
+        if external_reply:
+            return external_reply
+
+        # Built-in Agent Engine:
+
+        # 1. Schedule / Timetable / Routine Intent (handling common misspellings like 'scedule')
+        is_schedule_request = bool(
+            re.search(
+                r"\b(scedule|schedule|routine|timetable|agenda|plan\s+my\s+(day|evening|night|morning|afternoon|week|tomorrow))\b",
+                q_clean,
+            )
+        )
+        if is_schedule_request:
+            # Extract mentioned time if present (e.g., '9 pm', '9:00 pm', '9pm', '10 am', 'evening', etc.)
+            time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", q_clean)
+            target_time = time_match.group(1).upper() if time_match else None
+
+            # Check if evening / night / morning / afternoon
+            period_label = "Session"
+            if "pm" in q_clean or "evening" in q_clean or "night" in q_clean:
+                period_label = "Evening"
+            elif "am" in q_clean or "morning" in q_clean:
+                period_label = "Morning"
+            elif "afternoon" in q_clean:
+                period_label = "Afternoon"
+
+            time_header = f"starting around {target_time}" if target_time else f"for your {period_label.lower()}"
+
+            return (
+                f"Here is a structured schedule {time_header}:\n\n"
+                f"📅 **{period_label} Focus Schedule" + (f" ({target_time} onwards)" if target_time else "") + "**\n"
+                f"• **" + (f"{target_time} – " if target_time else "Part 1: ") + "Preparation & Focus Setup**\n"
+                "  - Review your goals, set up your workspace, and eliminate notifications.\n"
+                "• **Part 2: Core Deep Work / Activity Block (45 mins)**\n"
+                "  - Dive into your primary task with full focus.\n"
+                "• **Part 3: Quick Rest & Reflection (10 mins)**\n"
+                "  - Step away, hydrate, and assess your progress.\n"
+                "• **Part 4: Wrap-up & Tomorrow's Priorities (15 mins)**\n"
+                "  - Wrap up ongoing items and outline your top 3 tasks for tomorrow.\n\n"
+                "Would you like me to tailor this for a specific activity (e.g. studying, work, fitness, or relaxing), "
+                "or save this directly as a new note in Zuri for you?"
+            )
+
+        # 2. Writing & Drafting Intent
+        is_writing_prompt = bool(
+            re.search(
+                r"\b(i\s+want\s+to\s+write|help\s+me\s+write|write\s+something|draft\s+something|"
+                r"start\s+writing|let'?s\s+write|write\s+(me\s+)?a\s+(note|story|poem|essay|email|post|letter|article)|"
+                r"write\s+(me\s+)?about|draft\s+(me\s+)?a)\b",
+                q_clean,
+            )
+        )
+        if is_writing_prompt:
+            # Check if user gave a specific topic or just said "i want to write something"
+            topic_match = re.search(r"\b(?:about|on|for)\s+(.+)$", q_clean)
+            if topic_match and len(topic_match.group(1).strip()) > 3:
+                topic = topic_match.group(1).strip().title()
+                return (
+                    f"Here is a draft note on **{topic}**:\n\n"
+                    f"# {topic}\n\n"
+                    "### Overview\n"
+                    f"A structured capture of ideas and key insights regarding {topic}.\n\n"
+                    "### Key Points & Notes\n"
+                    f"• **Core Concept**: Understanding the fundamental principles of {topic}.\n"
+                    "• **Actionable Takeaways**: Practical steps to implement or explore next.\n"
+                    "• **Questions & Open Ideas**: Areas for future research and reflection.\n\n"
+                    "### Next Steps\n"
+                    "• Review and expand upon these initial thoughts.\n\n"
+                    "Would you like me to save this as a new note in Zuri, or would you like to edit and add more details?"
+                )
+            else:
+                return (
+                    "I'd love to help you write! What are you in the mood to work on today?\n\n"
+                    "Here are a few ways we can start:\n"
+                    "• **Draft a new note**: Give me a quick thought or topic, and I'll organize it with headings and key points.\n"
+                    "• **Plan or Schedule**: Outline an agenda, routine, or timeline for your day.\n"
+                    "• **Message or Email**: Tell me who it's for and the main objective, and I'll write a polished draft.\n"
+                    "• **Brainstorming or Brain Dump**: Share raw ideas, and we'll shape them into a structured document.\n\n"
+                    "Tell me what topic is on your mind, or start dictating your ideas!"
+                )
+
+        # 3. To-Do / Checklist Intent
+        if re.search(r"\b(todo|to-do|checklist|task\s+list|make\s+a\s+list\s+of\s+tasks|action\s+items)\b", q_clean):
+            return (
+                "Here is an actionable to-do checklist to keep you organized:\n\n"
+                "📋 **Action Items**\n"
+                "• [ ] **High Priority**: Complete core task / deliverable\n"
+                "• [ ] **Medium Priority**: Follow up on key messages & communications\n"
+                "• [ ] **Maintenance**: Quick review of ongoing notes & files\n"
+                "• [ ] **Wrap-up**: Outline tomorrow's top 3 objectives\n\n"
+                "Would you like me to customize this checklist for a specific project, or save it as a note in Zuri?"
+            )
+
+        # 4. Brainstorming & Idea Generation Intent
+        if re.search(r"\b(brainstorm|give\s+me\s+ideas|suggest\s+some\s+ideas|ideas\s+for|what\s+are\s+some\s+ideas)\b", q_clean):
+            return (
+                "I'm ready to brainstorm with you! 💡\n\n"
+                "What topic, challenge, or project would you like to explore? "
+                "Share a few keywords or goals, and I'll generate creative angles, pros/cons, and structured action items for you."
+            )
+
+        # 5. General Assistant Help Request
+        if re.search(r"\b(can\s+you\s+help\s+me|i\s+need\s+help\s+with|help\s+me\s+with)\b", q_clean):
+            return (
+                "I'm here to help! As your personal AI assistant, I can:\n"
+                "• Draft and structure notes, articles, or emails\n"
+                "• Build custom daily, evening, or study schedules\n"
+                "• Organize tasks into clean checklists\n"
+                "• Search and summarize your saved notes\n\n"
+                "What would you like assistance with right now?"
+            )
+
+        return None
+
     def generate_grounded_answer(
         self,
         query: str,
@@ -322,8 +565,21 @@ class GroundedLocalLLMProvider(LLMProvider):
             n for n in retrieved_notes if n.get("similarity", 0.0) >= similarity_threshold
         ]
 
-        # Case 1: Insufficient Evidence
+        # Case 1: Insufficient Evidence in existing notes
         if not qualified_notes:
+            # Check if this is an agent intent (writing, scheduling, planning, brainstorming, tasks)
+            agent_reply = self._detect_agent_intent(query, conversation_history)
+            if agent_reply:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                return GroundedAnswerResult(
+                    answer=agent_reply,
+                    has_sufficient_evidence=True,
+                    citations=[],
+                    latency_ms=round(elapsed, 2),
+                    model_name="zuri-agent-v1",
+                    tokens_used=len(agent_reply.split()),
+                )
+
             elapsed = (time.perf_counter() - start_time) * 1000
             return GroundedAnswerResult(
                 answer=(

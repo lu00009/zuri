@@ -176,16 +176,17 @@ class RetrievalService:
         Supports cross-memory querying, comparison, and change detection.
         Separates conversational intent (greetings/chit-chat) so they never trigger note search.
         """
-        # Conversational check: Never trigger a knowledge-base search for greetings or chit-chat
+        # Conversational & Agent check: Greetings, writing, scheduling, and generative agent tasks
         conversational_reply = self.llm_provider._detect_conversational_intent(query)
-        if conversational_reply:
+        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(query)
+        if agent_reply:
             return AiAskResponse(
-                answer=conversational_reply,
+                answer=agent_reply,
                 has_sufficient_evidence=True,
                 citations=[],
                 latency_ms=1.0,
-                model_name="zuri-conversational-v1",
-                tokens_used=len(conversational_reply.split()),
+                model_name="zuri-agent-v1",
+                tokens_used=len(agent_reply.split()),
             )
 
         retrieved = self.search_similar(db, user_id, query, top_k=top_k)
@@ -441,9 +442,10 @@ class RetrievalService:
             for m in history_msgs
         ]
 
-        # 1. Conversational intent check: Never trigger knowledge-base search for greetings or chit-chat
+        # 1. Conversational & Agent intent check: Greetings, chit-chat, writing, scheduling, and generative agent tasks
         conversational_reply = self.llm_provider._detect_conversational_intent(query)
-        if conversational_reply:
+        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(query, history_list)
+        if agent_reply:
             user_msg = ConversationMessage(
                 conversation_id=conversation_id,
                 user_id=user_id,
@@ -459,7 +461,7 @@ class RetrievalService:
                 conversation_id=conversation_id,
                 user_id=user_id,
                 role="assistant",
-                content=conversational_reply,
+                content=agent_reply,
                 citations_json=None,
                 has_sufficient_evidence=True,
             )
