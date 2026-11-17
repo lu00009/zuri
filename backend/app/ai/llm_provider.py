@@ -491,7 +491,7 @@ class GroundedLocalLLMProvider(LLMProvider):
 
             # User gave specific activities in the same message (e.g. "meeting at 5", "schedule at 9 pm: meeting, dinner")
             clean_sub = re.sub(
-                r"^(?:create|make|write|draft|take|new)?\s*(?:mea|me\s+a|a|me)?\s*(?:note|memo)?\s*(?:which|that|to)?\s*(?:schedule|scedule|chedule|shedule|plan)?\s*(?:my)?\s*",
+                r"^(?:.*?)\b(?:schedule|scedule|chedule|shedule|skedule|schedual|chedual|sched|plan)\b(?:\s+(?:for\s+me\b|me\s+a\b|me\b|a\b|my\b))?\s*",
                 "",
                 q,
                 flags=re.IGNORECASE,
@@ -499,7 +499,18 @@ class GroundedLocalLLMProvider(LLMProvider):
             # If time is attached like 'at 5', strip it from activity name
             activity_clean = re.sub(r"\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?$", "", clean_sub, flags=re.IGNORECASE).strip()
             raw_parts = re.split(r",|;|\bthen\b|\n|\band\b", activity_clean if activity_clean else clean_sub)
-            items = [p.strip(" .:-") for p in raw_parts if p.strip(" .:-") and len(p.strip()) > 1]
+            items = []
+            for p in raw_parts:
+                item = p.strip(" .:-")
+                item = re.sub(
+                    r"^(?:me\s+a|a|me|my|that|i\s+(?:have|had|need|want)\s+to(?:\s+have)?(?:\s+a)?|to\s+have\s+a|to\s+have|to)\b\s*",
+                    "",
+                    item,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if item and len(item) > 1:
+                    items.append(item.capitalize())
+
             if not items:
                 items = [" ".join(content_tokens)]
 
@@ -568,12 +579,18 @@ class GroundedLocalLLMProvider(LLMProvider):
         if is_add_item:
             # Clean the new item
             new_item = re.sub(
-                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*(?:to\s+(?:it|my\s+schedule|my\s+notes?|this))?\s*(?:that\s+)?(?:i\s+have\s+)?",
+                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*(?:to\s+(?:it|my\s+schedule|my\s+notes?|this))?\s*(?:that\s+)?(?:i\s+have\s+|i\s+had\s+to\s+|i\s+have\s+to\s+|i\s+need\s+to\s+)?",
                 "",
                 q,
                 flags=re.IGNORECASE,
             )
             new_item = re.sub(r"\s+(?:too|as\s+well|please)\.?$", "", new_item, flags=re.IGNORECASE).strip(" .:-")
+            new_item = re.sub(
+                r"^(?:me\s+a|a|me|my|that|i\s+(?:have|had|need|want)\s+to(?:\s+have)?(?:\s+a)?|to\s+have\s+a|to\s+have|to)\b\s*",
+                "",
+                new_item,
+                flags=re.IGNORECASE,
+            ).strip()
 
             # Look in conversation history for the most recent schedule or note containing items
             draft_msg = None

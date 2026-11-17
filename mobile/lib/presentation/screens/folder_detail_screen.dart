@@ -390,7 +390,7 @@ class _FolderDetailScreenState extends ConsumerState<FolderDetailScreen> {
                       if (note.content.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Text(
-                          note.content,
+                          note.content.replaceAll('**', '').replaceAll('*', '').trim(),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

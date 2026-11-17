@@ -556,6 +556,9 @@ def test_agent_intent_create_note_schedule_colloquial(client, auth_headers_user_
     matching_notes = [n for n in notes_res.json()["items"] if "5:00 schedule" in n["title"].lower() or "schedule" in n["title"].lower()]
     assert len(matching_notes) >= 1
     assert "meeting" in matching_notes[0]["content"].lower()
+    # Ensure no raw asterisks in note title or content
+    assert "**" not in matching_notes[0]["title"]
+    assert "**" not in matching_notes[0]["content"]
 
 
 

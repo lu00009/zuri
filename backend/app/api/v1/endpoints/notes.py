@@ -89,6 +89,13 @@ def create_note(
             detail="A note with this ID already exists.",
         )
 
+    from sqlalchemy import func
+    max_ver = (
+        db.query(func.max(Note.version))
+        .filter(Note.user_id == current_user.id)
+        .scalar()
+    ) or 0
+
     note = Note(
         id=note_id,
         user_id=current_user.id,
@@ -98,7 +105,7 @@ def create_note(
         is_pinned=note_in.is_pinned,
         is_archived=note_in.is_archived,
         client_updated_at=note_in.client_updated_at,
-        version=1,
+        version=max_ver + 1,
     )
     db.add(note)
     db.flush()

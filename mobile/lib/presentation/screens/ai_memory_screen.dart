@@ -56,6 +56,12 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     // Also call legacy aiNotifier for backwards-compatibility with tests & single-shot answers
     await ref.read(aiNotifierProvider.notifier).ask(clean);
 
+    // If this turn was an approval, immediately synchronize so the note is pulled locally
+    final lowerClean = clean.toLowerCase().trim();
+    if (lowerClean == 'approve' || lowerClean == 'yes' || lowerClean.contains('save')) {
+      await ref.read(syncProvider.notifier).syncNow();
+    }
+
     _scrollToBottom();
   }
 
@@ -893,10 +899,12 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
                         const SizedBox(height: 10),
                       ],
                       _buildAssistantContent(context, msg.content),
-                      if (msg.content.toLowerCase().contains('approve') &&
+                      if (!msg.content.trim().startsWith('Approved!') &&
+                          !msg.content.toLowerCase().contains('i have saved this') &&
+                          !msg.content.toLowerCase().contains('i have updated your note') &&
+                          msg.content.toLowerCase().contains('approve') &&
                           (msg.content.toLowerCase().contains('save this') ||
-                              msg.content.toLowerCase().contains('reply') ||
-                              msg.content.toLowerCase().contains('note'))) ...[
+                              msg.content.toLowerCase().contains('reply'))) ...[
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
@@ -963,13 +971,76 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
         .split(RegExp(r'\n\n💡\s*(\*\*)?Recommendation:?(\*\*)?\s*', caseSensitive: false))[0]
         .trim();
 
-    return Text(
-      cleanText,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        fontSize: 14.5,
-        height: 1.5,
-      ),
+    if (!cleanText.contains('*')) {
+      return Text(
+        cleanText,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontSize: 14.5,
+          height: 1.5,
+        ),
+      );
+    }
+
+    final baseStyle = theme.textTheme.bodyMedium?.copyWith(
+          fontSize: 14.5,
+          height: 1.5,
+        ) ??
+        const TextStyle(fontSize: 14.5, height: 1.5);
+
+    final spans = _parseInlineMarkdown(cleanText, baseStyle, theme);
+    return Text.rich(
+      TextSpan(children: spans),
     );
+  }
+
+  List<InlineSpan> _parseInlineMarkdown(
+    String line,
+    TextStyle baseStyle,
+    ThemeData theme,
+  ) {
+    final spans = <InlineSpan>[];
+    final regex = RegExp(r'\*\*(.+?)\*\*|\*(.+?)\*');
+    int lastIndex = 0;
+
+    for (final match in regex.allMatches(line)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: line.substring(lastIndex, match.start),
+          style: baseStyle,
+        ));
+      }
+
+      final boldGroup = match.group(1);
+      final italicGroup = match.group(2);
+
+      if (boldGroup != null) {
+        spans.add(TextSpan(
+          text: boldGroup,
+          style: baseStyle.copyWith(
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.onSurface,
+          ),
+        ));
+      } else if (italicGroup != null) {
+        spans.add(TextSpan(
+          text: italicGroup,
+          style: baseStyle.copyWith(
+            fontStyle: FontStyle.italic,
+          ),
+        ));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < line.length) {
+      spans.add(TextSpan(
+        text: line.substring(lastIndex),
+        style: baseStyle,
+      ));
+    }
+
+    return spans;
   }
 
   Widget _buildLegacyAnswerView(BuildContext context, GroundedAnswer answer) {

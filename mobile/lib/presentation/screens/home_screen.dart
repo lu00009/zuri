@@ -916,7 +916,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 // Note Preview lines
                 Expanded(
                   child: Text(
-                    note.content.isNotEmpty ? note.content : 'No content',
+                    note.content.isNotEmpty
+                        ? note.content.replaceAll('**', '').replaceAll('*', '').trim()
+                        : 'No content',
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

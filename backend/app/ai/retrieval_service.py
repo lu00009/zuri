@@ -443,6 +443,7 @@ class RetrievalService:
             title = re.search(r"^\#+\s+(.+)$", assistant_text, re.MULTILINE).group(1).strip()
 
         title = re.sub(r"^[📅📋📝\s]+", "", title).strip()
+        title = title.replace("**", "").replace("*", "").strip()
         if not title:
             title = "Personal Note"
 
@@ -455,8 +456,19 @@ class RetrievalService:
             flags=re.IGNORECASE | re.DOTALL,
         ).strip()
 
+        # Remove duplicate title header from top of note body
+        content = re.sub(
+            r"^(?:📅|📋|📝)?\s*\*{0,2}" + re.escape(title) + r"\*{0,2}\s*\n*",
+            "",
+            content,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        # Strip all raw markdown asterisks so stored note text is completely clean
+        content = content.replace("**", "").replace("*", "").strip()
+
         if not content:
-            content = assistant_text.strip()
+            content = assistant_text.strip().replace("**", "").replace("*", "")
 
         return title, content
 
@@ -498,6 +510,14 @@ class RetrievalService:
             if last_assistant_msg and ("approve" in last_assistant_msg.lower() or "save this" in last_assistant_msg.lower() or "schedule" in last_assistant_msg.lower() or "draft" in last_assistant_msg.lower()):
                 title, content = self._extract_note_draft(last_assistant_msg)
 
+                from sqlalchemy import func
+                max_ver = (
+                    db.query(func.max(Note.version))
+                    .filter(Note.user_id == user_id)
+                    .scalar()
+                ) or 0
+                next_ver = max_ver + 1
+
                 existing_note = (
                     db.query(Note)
                     .filter(
@@ -510,6 +530,7 @@ class RetrievalService:
                 )
                 if existing_note:
                     existing_note.content = content
+                    existing_note.version = next_ver
                     existing_note.updated_at = datetime.now(timezone.utc)
                     db.flush()
                     self.sync_user_embeddings(db, user_id)
@@ -523,6 +544,7 @@ class RetrievalService:
                         user_id=user_id,
                         title=title,
                         content=content,
+                        version=next_ver,
                         is_deleted=False,
                         created_at=datetime.now(timezone.utc),
                         updated_at=datetime.now(timezone.utc),

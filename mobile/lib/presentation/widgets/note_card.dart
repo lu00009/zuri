@@ -119,7 +119,7 @@ class NoteCard extends StatelessWidget {
               if (note.content.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
-                  note.content,
+                  note.content.replaceAll('**', '').replaceAll('*', '').trim(),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
