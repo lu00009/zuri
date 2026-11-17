@@ -18,9 +18,7 @@ class ApiClient {
     this.onSessionExpired,
   }) : tokenStorage =
             customTokenStorage ??
-            FlutterSecureTokenStorage(
-              customStorage ?? const FlutterSecureStorage(),
-            ),
+            FlutterSecureTokenStorage(customStorage),
         dio =
             customDio ??
             Dio(

@@ -7,7 +7,8 @@ import 'auth_provider.dart';
 import 'notes_provider.dart';
 
 final apiClientProvider = Provider<ApiClient>((ref) {
-  return ApiClient();
+  final storage = ref.watch(secureTokenStorageProvider);
+  return ApiClient(customTokenStorage: storage);
 });
 
 final syncQueueProvider = Provider<SyncQueueDataSource>((ref) {
