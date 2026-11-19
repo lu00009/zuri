@@ -765,6 +765,51 @@ def test_add_item_preserves_all_edges(client, auth_headers_user_a):
     assert "meeting with robel" in res4.lower()
 
 
+def test_mixed_add_remove_and_folder_creation_intent(client, auth_headers_user_a):
+    """
+    Tests:
+    1. 'on daily task log add megfira is not coming and remove megfira is not avaiilable'
+       adds 'megfira is not coming' and successfully removes 'Tell megfira you are not available'.
+    2. 'create folder that says lulu' does NOT fall through to note search or output daily task log,
+       instead it returns clean folder creation confirmation.
+    """
+    from app.ai.llm_provider import GroundedLocalLLMProvider
+
+    # 1. Mixed Add & Remove
+    history = [
+        {"role": "user", "content": "today portfolio done and tomorrow meeting with robel"},
+        {
+            "role": "assistant",
+            "content": (
+                "Here is your daily task & activity log:\n\n"
+                "📋 **Daily Task Log**\n"
+                "• **Completed**: Portfolio\n"
+                "• **Pending / To-Do**: Buy groceries\n"
+                "• **Tomorrow**: Tell megfira you are not available\n\n"
+                "Would you like me to save this into your notes? Reply 'approve' to save it."
+            ),
+        },
+    ]
+    q = "on daily task log add megfira is not coming and remove megfira is not avaiilable"
+    res = GroundedLocalLLMProvider._detect_agent_intent(q, history)
+    assert "megfira is not coming" in res.lower()
+    assert "portfolio" in res.lower()
+    assert "buy groceries" in res.lower()
+    # The removed item MUST be gone
+    assert "tell megfira you are not available" not in res.lower()
+    # The directive MUST NOT be added as a task
+    assert "remove megfira" not in res.lower()
+
+    # 2. Folder Creation Intent
+    folder_q = "create folder that says lulu"
+    folder_res = GroundedLocalLLMProvider._detect_agent_intent(folder_q)
+    assert "folder" in folder_res.lower()
+    assert "lulu" in folder_res.lower()
+    assert "according to your note" not in folder_res.lower()
+    assert "daily task log" not in folder_res.lower()
+
+
+
 
 
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../data/datasources/remote/ai_remote_data_source.dart';
 import '../providers/ai_provider.dart';
+import '../providers/folders_provider.dart';
 import '../providers/sync_provider.dart';
 
 class AiMemoryScreen extends ConsumerStatefulWidget {
@@ -48,6 +49,23 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     final syncState = ref.read(syncProvider);
     if (syncState.pendingCount > 0) {
       await ref.read(syncProvider.notifier).syncNow();
+    }
+
+    // Check if query is folder / notebook creation intent
+    final folderRegex = RegExp(
+      r'^(?:please\s+)?(?:can\s+you\s+)?(?:create|make|add|new|start|open)\s+(?:me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?([a-zA-Z0-9\s\-_]+)$',
+      caseSensitive: false,
+    );
+    final folderMatch = folderRegex.firstMatch(clean);
+    if (folderMatch != null) {
+      var folderName = folderMatch.group(1)?.trim() ?? '';
+      folderName = folderName
+          .replaceAll(RegExp(r'^(?:that\s+says|called|named|titled|for)\s+', caseSensitive: false), '')
+          .replaceAll(RegExp(r'''['"]'''), '')
+          .trim();
+      if (folderName.isNotEmpty) {
+        await ref.read(foldersListProvider.notifier).createFolder(name: folderName);
+      }
     }
 
     // Call conversation notifier for persistent conversational memory

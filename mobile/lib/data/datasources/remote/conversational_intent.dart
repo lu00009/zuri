@@ -168,7 +168,7 @@ class ConversationalIntent {
     }
 
     // 10. Short conversational statements (1 to 2 words that aren't specific technical nouns)
-    if (numWords <= 2 && !RegExp(r'\b(note|save|approve|confirm|code|pass|key|email|task|todo|project|date|plan|meet|buy|call)\b').hasMatch(normalized)) {
+    if (numWords <= 2 && !RegExp(r'\b(note|save|approve|confirm|code|pass|key|email|task|todo|project|date|plan|meet|buy|call|folder|notebook|remove|delete)\b').hasMatch(normalized)) {
       return "I'm listening! Feel free to ask me anything about your notes, or share what you'd like to talk about.";
     }
 

@@ -139,6 +139,30 @@ class GroundedLocalLLMProvider(LLMProvider):
         return f"{query} {context_boost}".strip()
 
     @staticmethod
+    def _is_removal_match(item: str, remove_query: str) -> bool:
+        import difflib
+        item_clean = re.sub(r"[^\w\s]", " ", item.lower()).strip()
+        rem_clean = re.sub(r"[^\w\s]", " ", remove_query.lower()).strip()
+        if not rem_clean:
+            return False
+        if rem_clean in item_clean or item_clean in rem_clean:
+            return True
+        stop_words = {"the", "a", "an", "is", "are", "to", "you", "am", "not", "that", "this", "it", "for", "on", "in", "and", "or"}
+        item_tokens = set(w for w in item_clean.split() if w not in stop_words)
+        rem_tokens = set(w for w in rem_clean.split() if w not in stop_words)
+        if not rem_tokens:
+            rem_tokens = set(rem_clean.split())
+        matches = 0
+        for rt in rem_tokens:
+            for it in item_tokens:
+                if rt == it or (len(rt) >= 4 and difflib.SequenceMatcher(None, rt, it).ratio() >= 0.75):
+                    matches += 1
+                    break
+        if matches >= 1 and (matches / max(len(rem_tokens), 1) >= 0.5 or matches >= 2):
+            return True
+        return difflib.SequenceMatcher(None, item_clean, rem_clean).ratio() >= 0.6
+
+    @staticmethod
     def _detect_conversational_intent(query: str) -> str | None:
         """
         Recognizes greetings, identity/capabilities inquiries, gratitude, farewells,
@@ -450,67 +474,98 @@ class GroundedLocalLLMProvider(LLMProvider):
 
         # Built-in Agent Engine:
 
-        # 1. Add / Append Item Intent (e.g. "also add i have grocery too", "on daily task log add also...", "add X to my schedule")
-        # Must be evaluated before creation intents so that follow-up additions strictly preserve all existing content.
-        is_add_item = False
-        target_name = None
-        raw_item = None
-
-        m_add_prefix = re.match(
-            r"^(?:on|in|to)\s+(?:the\s+|my\s+)?(?P<target>[a-z0-9\s\-_:']{2,40}?)\s+(?:add\s+also|also\s+add|add|append|include|put)\s*(?P<rest>.*)$",
-            q,
-            re.IGNORECASE,
+        # 0. Folder / Notebook Creation Intent (e.g. "create folder that says lulu", "make notebook projects")
+        is_folder_request = bool(
+            re.search(
+                r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\b",
+                q_clean,
+            )
         )
-        if m_add_prefix:
-            is_add_item = True
-            target_name = m_add_prefix.group("target").strip()
-            raw_item = m_add_prefix.group("rest").strip()
-        else:
-            m_add_standard = re.match(
-                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|and\s+also\s+add|and\s+add|and\s+also|add|include|append|put)\s*(?P<rest>.*)$",
+        if is_folder_request:
+            m_f = re.search(
+                r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?(.+)$",
                 q,
                 re.IGNORECASE,
             )
-            if m_add_standard:
-                is_add_item = True
-                rest = m_add_standard.group("rest").strip()
-                m_target_post = re.search(
-                    r"\b(?:to|in|on|into)\s+(?:the\s+|my\s+)?(?P<target>[a-z0-9\s\-_:']{2,40}?)(?:\s+(?:too|as\s+well|please))?[.!?]*$",
-                    rest,
-                    re.IGNORECASE,
-                )
-                if m_target_post:
-                    target_name = m_target_post.group("target").strip()
-                    raw_item = rest[:m_target_post.start()].strip()
-                else:
-                    target_name = None
-                    raw_item = rest
-            elif (
-                re.search(r"\b(?:also\s+add|add\s+also|can\s+you\s+(?:also\s+)?add|please\s+(?:also\s+)?add|include\s+also|append\s+to|add\s+to|add\s+in|add\s+on)\b", q, re.IGNORECASE)
-                or (re.search(r"\badd\b", q, re.IGNORECASE) and re.search(r"\b(?:too|as\s+well)\b", q, re.IGNORECASE))
-            ):
-                if not re.search(r"^(?:how\s+(?:do\s+i|can\s+i|to)|where\s+(?:do\s+i|can\s+i)|why)\b", q_clean):
-                    is_add_item = True
-                    cleaned_q = re.sub(
-                        r"^(?:(?:on|to|in)\s+(?:the\s+|my\s+)?[a-z0-9\s\-_:']{2,40}?\s+)?"
-                        r"(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|and\s+also\s+add|and\s+add|and\s+also|add|include|append|put)\s*",
-                        "",
-                        q,
-                        flags=re.IGNORECASE,
+            raw_fname = m_f.group(1).strip(" .:-") if m_f else "New Folder"
+            raw_fname = re.sub(r"^(?:that\s+says|called|named|titled|for)\s+", "", raw_fname, flags=re.IGNORECASE).strip(" .:-'\"")
+            folder_title = raw_fname.title() if raw_fname else "New Folder"
+            return (
+                f"I've created the folder **{folder_title}** for you! 📁\n\n"
+                f"You can now organize your notes into **{folder_title}** anytime."
+            )
+
+        # 1. Add / Remove Item Intent (e.g. "on daily task log add X and remove Y", "remove X from daily task log", "also add X")
+        # Must be evaluated before creation intents so that follow-up additions/removals strictly preserve existing content.
+        target_name = None
+        items_to_add = []
+        items_to_remove = []
+
+        m_target = re.match(
+            r"^(?:on|in|to)\s+(?:the\s+|my\s+)?([a-z0-9\s\-_:']{2,40}?)\s+(?:add\s+also|also\s+add|add|append|include|put|remove|delete|drop|take\s+out|cancel)\b",
+            q,
+            re.IGNORECASE,
+        )
+        if m_target:
+            target_name = m_target.group(1).strip()
+            body = q[m_target.end(1):].strip()
+        else:
+            body = q
+
+        is_new_creation_prompt = bool(
+            re.match(r"^(?:writeme|write\s*me|createme|create\s*me|makeme|make\s*me|draftme|draft\s*me|log|track|record)\b", q_clean)
+            or re.search(r"\b(?:todays?\s+(?:completed\s+)?tasks?|completed\s+tasks?)\b", q_clean)
+        )
+
+        is_modify_intent = False
+        if m_target:
+            is_modify_intent = True
+        elif not is_new_creation_prompt:
+            if re.match(r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|and\s+also\s+add|and\s+add|also\s+remove|remove\s+also|and\s+remove|and\s+delete|add|include|append|put|remove|delete|drop|take\s+out|cancel)\b", q, re.IGNORECASE):
+                is_modify_intent = True
+            elif re.search(r"\b(?:also\s+add|add\s+also|and\s+remove|and\s+delete|also\s+remove|remove\s+also)\b", q, re.IGNORECASE):
+                is_modify_intent = True
+            elif re.search(r"\badd\b", q, re.IGNORECASE) and re.search(r"\b(?:too|as\s+well)\b", q, re.IGNORECASE):
+                is_modify_intent = True
+
+        if is_modify_intent and not re.search(r"^(?:how\s+(?:do\s+i|can\s+i|to)|where\s+(?:do\s+i|can\s+i)|why)\b", q_clean):
+            marker_pattern = re.compile(
+                r"\b(?:and\s+also\s+add|and\s+add|also\s+add|add\s+also|add|and\s+remove|and\s+delete|remove|delete|drop|take\s+out|get\s+rid\s+of|cancel)\b",
+                re.IGNORECASE,
+            )
+            matches = list(marker_pattern.finditer(body))
+            if matches:
+                for idx, m in enumerate(matches):
+                    marker = m.group(0).lower()
+                    start = m.end()
+                    end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
+                    chunk = body[start:end].strip()
+
+                    # Clean trailing target container e.g. "from daily task log" or "to daily task log"
+                    m_trail = re.search(
+                        r"\b(?:from|to|in|on|into)\s+(?:the\s+|my\s+)?(?P<tname>(?:[a-z0-9\-_']+\s+){0,3}(?:daily\s+task\s+log|task\s+log|tasks?|schedule|routine|notebook|folder|list|checklist|notes?))(?:\s+(?:too|as\s+well|please))?[.!?]*$",
+                        chunk,
+                        re.IGNORECASE,
                     )
-                    raw_item = cleaned_q
+                    if m_trail:
+                        if not target_name:
+                            target_name = m_trail.group("tname").strip()
+                        chunk = chunk[:m_trail.start()].strip()
 
-        if is_add_item and raw_item is not None:
-            # Strip trailing too, as well, please
-            raw_item = re.sub(r"\s+(?:too|as\s+well|please)[.!?]*$", "", raw_item, flags=re.IGNORECASE).strip(" .:-")
+                    chunk = re.sub(r"\s+(?:too|as\s+well|please)[.!?]*$", "", chunk, flags=re.IGNORECASE).strip(" .:-")
+                    chunk = re.sub(
+                        r"^(?:also\s+|that\s+|to\s+|i\s+(?:have|had|need|want)\s+(?:to\s+)?(?:\s+have)?(?:\s+a)?\s*|to\s+have\s+a\s*|to\s+have\s*|me\s+a\s*|a\s+|me\s+|my\s+|the\s+(?:task|item)\s+)",
+                        "",
+                        chunk,
+                        flags=re.IGNORECASE,
+                    ).strip(" .:-")
 
-            # Strip leading connector / colloquial words
-            raw_item = re.sub(
-                r"^(?:also\s+|that\s+|to\s+|i\s+(?:have|had|need|want)\s+(?:to\s+)?(?:\s+have)?(?:\s+a)?\s*|to\s+have\s+a\s*|to\s+have\s*|me\s+a\s*|a\s+|me\s+|my\s+)",
-                "",
-                raw_item,
-                flags=re.IGNORECASE,
-            ).strip(" .:-")
+                    if any(w in marker for w in ("remove", "delete", "drop", "take out", "cancel", "get rid of")):
+                        if chunk:
+                            items_to_remove.append(chunk)
+                    else:
+                        if chunk:
+                            items_to_add.append(chunk)
 
             # Locate existing draft: first from conversation history, second from user_notes
             draft_msg = None
@@ -560,7 +615,7 @@ class GroundedLocalLLMProvider(LLMProvider):
                 or (target_name and "schedule" in target_name.lower())
             )
 
-            # Case A: Adding to a Daily Task Log (Preserves 100% of existing items across all sections)
+            # Case A: Modifying a Daily Task Log (Preserves non-removed items and appends new items)
             if is_task_draft:
                 existing_completed = []
                 existing_todo = []
@@ -589,43 +644,52 @@ class GroundedLocalLLMProvider(LLMProvider):
                             if text:
                                 existing_other.append(text)
 
-                # Parse new items from raw_item
-                tomorrow_match = re.search(r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$", raw_item, re.IGNORECASE)
-                if tomorrow_match:
-                    t_text = tomorrow_match.group(1).strip(" .:-")
-                    raw_item = raw_item[:tomorrow_match.start()].strip()
-                    if t_text:
-                        existing_tomorrow.append(t_text)
-                elif re.search(r"\b(tomorrow|tommorow|next\s+day)\b", raw_item, re.IGNORECASE):
-                    clean_t = re.sub(r"\b(?:tomorrow|tommorow|next\s+day)\b", "", raw_item, flags=re.IGNORECASE).strip(" .:-")
-                    if clean_t:
-                        existing_tomorrow.append(clean_t)
-                    raw_item = ""
+                # 1. Apply removals
+                for r in items_to_remove:
+                    existing_completed = [it for it in existing_completed if not cls._is_removal_match(it, r)]
+                    existing_todo = [it for it in existing_todo if not cls._is_removal_match(it, r)]
+                    existing_tomorrow = [it for it in existing_tomorrow if not cls._is_removal_match(it, r)]
+                    existing_other = [it for it in existing_other if not cls._is_removal_match(it, r)]
 
-                if raw_item:
-                    if re.search(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE):
-                        matches = list(re.finditer(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE))
-                        last_pos = 0
-                        for m in matches:
-                            status = m.group(1).lower()
-                            chunk = raw_item[last_pos:m.start()].strip()
-                            chunk = re.sub(r"^(?:and|,|;|\.)\s*", "", chunk, flags=re.IGNORECASE).strip()
-                            if chunk:
-                                if status in ("undone", "pending"):
-                                    existing_todo.append(chunk)
-                                else:
-                                    existing_completed.append(chunk)
-                            last_pos = m.end()
-                        trailing = raw_item[last_pos:].strip()
-                        trailing = re.sub(r"^(?:and|,|;|\.)\s*", "", trailing, flags=re.IGNORECASE).strip()
-                        if trailing and len(trailing) > 2:
-                            existing_todo.append(trailing)
-                    else:
-                        parts = [p.strip() for p in re.split(r",|;|\band\b", raw_item) if p.strip()]
-                        for p in parts:
-                            p_clean = re.sub(r"^(?:undone|pending|to\s*do)\s*", "", p, flags=re.IGNORECASE).strip(" .:-")
-                            if p_clean:
-                                existing_todo.append(p_clean)
+                # 2. Apply additions
+                for add_chunk in items_to_add:
+                    raw_item = add_chunk
+                    tomorrow_match = re.search(r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$", raw_item, re.IGNORECASE)
+                    if tomorrow_match:
+                        t_text = tomorrow_match.group(1).strip(" .:-")
+                        raw_item = raw_item[:tomorrow_match.start()].strip()
+                        if t_text:
+                            existing_tomorrow.append(t_text)
+                    elif re.search(r"\b(tomorrow|tommorow|next\s+day)\b", raw_item, re.IGNORECASE):
+                        clean_t = re.sub(r"\b(?:tomorrow|tommorow|next\s+day)\b", "", raw_item, flags=re.IGNORECASE).strip(" .:-")
+                        if clean_t:
+                            existing_tomorrow.append(clean_t)
+                        raw_item = ""
+
+                    if raw_item:
+                        if re.search(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE):
+                            matches_done = list(re.finditer(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE))
+                            last_pos = 0
+                            for md in matches_done:
+                                status = md.group(1).lower()
+                                chunk_d = raw_item[last_pos:md.start()].strip()
+                                chunk_d = re.sub(r"^(?:and|,|;|\.)\s*", "", chunk_d, flags=re.IGNORECASE).strip()
+                                if chunk_d:
+                                    if status in ("undone", "pending"):
+                                        existing_todo.append(chunk_d)
+                                    else:
+                                        existing_completed.append(chunk_d)
+                                last_pos = md.end()
+                            trailing = raw_item[last_pos:].strip()
+                            trailing = re.sub(r"^(?:and|,|;|\.)\s*", "", trailing, flags=re.IGNORECASE).strip()
+                            if trailing and len(trailing) > 2:
+                                existing_todo.append(trailing)
+                        else:
+                            parts = [p.strip() for p in re.split(r",|;|\band\b", raw_item) if p.strip()]
+                            for p in parts:
+                                p_clean = re.sub(r"^(?:undone|pending|to\s*do)\s*", "", p, flags=re.IGNORECASE).strip(" .:-")
+                                if p_clean:
+                                    existing_todo.append(p_clean)
 
                 bullet_lines = []
                 if existing_completed:
@@ -645,10 +709,10 @@ class GroundedLocalLLMProvider(LLMProvider):
                     "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )
 
-            # Case B: Adding to a Timed Schedule (Preserves 100% of existing items in order)
+            # Case B: Modifying a Timed Schedule
             elif is_schedule_draft:
                 time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", draft_msg or "", re.IGNORECASE)
-                target_time = time_match.group(1).upper() if time_match else "Upcoming"
+                target_time = time_match.group(1).upper().strip() if time_match else "Upcoming"
 
                 bullet_items = []
                 if draft_msg:
@@ -659,8 +723,11 @@ class GroundedLocalLLMProvider(LLMProvider):
                             if item_text:
                                 bullet_items.append(item_text)
 
-                if raw_item:
-                    new_parts = [p.strip() for p in re.split(r",|;|\band\b", raw_item) if p.strip()]
+                for r in items_to_remove:
+                    bullet_items = [it for it in bullet_items if not cls._is_removal_match(it, r)]
+
+                for add_chunk in items_to_add:
+                    new_parts = [p.strip() for p in re.split(r",|;|\band\b", add_chunk) if p.strip()]
                     for p in new_parts:
                         if p and p.lower() not in [b.lower() for b in bullet_items]:
                             bullet_items.append(p)
@@ -674,7 +741,7 @@ class GroundedLocalLLMProvider(LLMProvider):
                     "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )
 
-            # Case C: Adding to a General Note (Preserves 100% of existing note items & title)
+            # Case C: Modifying a General Note
             elif draft_msg:
                 title = target_name.title() if target_name else "Personal Note"
                 for line in draft_msg.split("\n"):
@@ -698,10 +765,14 @@ class GroundedLocalLLMProvider(LLMProvider):
                         if item_text:
                             existing_bullets.append(item_text)
 
-                new_parts = [p.strip() for p in re.split(r",|;|\band\b|\n", raw_item) if p.strip()]
-                for p in new_parts:
-                    if p and p.lower() not in [b.lower() for b in existing_bullets]:
-                        existing_bullets.append(p)
+                for r in items_to_remove:
+                    existing_bullets = [it for it in existing_bullets if not cls._is_removal_match(it, r)]
+
+                for add_chunk in items_to_add:
+                    new_parts = [p.strip() for p in re.split(r",|;|\band\b|\n", add_chunk) if p.strip()]
+                    for p in new_parts:
+                        if p and p.lower() not in [b.lower() for b in existing_bullets]:
+                            existing_bullets.append(p)
 
                 bullet_lines = [f"• {b.capitalize()}" for b in existing_bullets]
                 return (
@@ -713,11 +784,12 @@ class GroundedLocalLLMProvider(LLMProvider):
 
             # Case D: No previous note found - create initial draft for target
             else:
-                title = target_name.title() if target_name else raw_item.capitalize()
+                raw_text = ", ".join(items_to_add) if items_to_add else "Personal Note"
+                title = target_name.title() if target_name else raw_text.capitalize()
                 return (
                     f"Here is your draft note on **{title}**:\n\n"
                     f"# {title}\n\n"
-                    f"• {raw_item.capitalize()}\n\n"
+                    f"• {raw_text.capitalize()}\n\n"
                     "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )
 
