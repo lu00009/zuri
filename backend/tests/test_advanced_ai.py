@@ -561,6 +561,59 @@ def test_agent_intent_create_note_schedule_colloquial(client, auth_headers_user_
     assert "**" not in matching_notes[0]["content"]
 
 
+def test_agent_intent_daily_task_log(client, auth_headers_user_a):
+    """
+    Test user query with task log intent:
+    'writeme todays completed task portfolio check and freelance.com i should add portfolio project tommorow meeting with robel'
+    Should organize into Daily Task Log, draft completed, action items, and tomorrow's plan,
+    and save without raw asterisks upon approval.
+    """
+    create_conv = client.post(
+        "/api/v1/ai/conversations",
+        json={"title": "Daily Tasks"},
+        headers=auth_headers_user_a,
+    )
+    assert create_conv.status_code == 201
+    conv_id = create_conv.json()["id"]
+
+    query = "writeme todays completed task portfolio check and freelance.com i should add portfolio project tommorow meeting with robel"
+    turn1 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": query},
+        headers=auth_headers_user_a,
+    )
+    assert turn1.status_code == 201
+    ans1 = turn1.json()["assistant_message"]["content"]
+    assert "insufficient information" not in ans1.lower()
+    assert "daily task log" in ans1.lower() or "task" in ans1.lower()
+    assert "portfolio check" in ans1.lower()
+    assert "freelance.com" in ans1.lower()
+    assert "portfolio project" in ans1.lower()
+    assert "robel" in ans1.lower()
+    assert "approve" in ans1.lower()
+
+    # User approves
+    turn2 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "approve"},
+        headers=auth_headers_user_a,
+    )
+    assert turn2.status_code == 201
+    ans2 = turn2.json()["assistant_message"]["content"]
+    assert "approved" in ans2.lower()
+
+    # Verify saved in notes
+    notes_res = client.get("/api/v1/notes", headers=auth_headers_user_a)
+    assert notes_res.status_code == 200
+    task_notes = [n for n in notes_res.json()["items"] if "task" in n["title"].lower() or "log" in n["title"].lower()]
+    assert len(task_notes) >= 1
+    assert "portfolio check" in task_notes[0]["content"].lower()
+    assert "robel" in task_notes[0]["content"].lower()
+    assert "**" not in task_notes[0]["title"]
+    assert "**" not in task_notes[0]["content"]
+
+
+
 
 
 

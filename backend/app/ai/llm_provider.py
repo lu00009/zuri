@@ -526,49 +526,70 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 2. Writing & Drafting Intent (including 'create a note', 'make me a note', 'take a note')
-        is_writing_prompt = bool(
+        # 1b. Daily Task Log / Work Log / Completed Tasks Intent
+        is_task_log = bool(
             re.search(
-                r"\b((?:create|make|write|draft|take|add|save|start|new|record)\s+(?:mea\s+|me\s+a\s+|a\s+|me\s+)?(?:note|memo|entry|schedule|draft)|"
-                r"i\s+want\s+to\s+write|help\s+me\s+write|write\s+something|draft\s+something|"
-                r"start\s+writing|let'?s\s+write|write\s+(me\s+)?a\s+(note|story|poem|essay|email|post|letter|article)|"
-                r"write\s+(me\s+)?about|draft\s+(me\s+)?a)\b",
+                r"\b((?:writeme|write\s*me|log|record|track|draftme|draft\s*me|createme|create\s*me|note\s*down)\s+"
+                r"(?:my\s+|a\s+|todays?\s+|daily\s+)?(?:completed\s+tasks?|tasks?|work|activity|log|updates?)|"
+                r"(?:completed\s+tasks?|tasks?\s+completed|todays?\s+(?:completed\s+)?tasks?|work\s+log|daily\s+log))\b",
                 q_clean,
             )
         )
-        if is_writing_prompt:
-            # Check if user gave a specific topic or just said "i want to write something"
-            topic_match = re.search(r"\b(?:about|on|for|titled|which)\s+(.+)$", q_clean)
-            has_topic = topic_match and len(topic_match.group(1).strip()) > 3
-            writing_meta = {
-                "i", "want", "to", "write", "help", "me", "something", "draft", "start",
-                "writing", "lets", "let", "s", "a", "an", "the", "note", "notes", "down",
-                "can", "you", "please", "create", "make", "take", "new", "mea"
-            }
-            extra_tokens = [w for w in q_clean.split() if w not in writing_meta]
+        if is_task_log:
+            # Segment into Completed Today, Action Items / To-Do, and Tomorrow
+            completed_match = re.search(
+                r"\b(?:today(?:'s|s)?\s+)?(?:completed\s+tasks?|tasks?\s+completed|completed|done|finished)\s*(?:is|are|:)?\s*(.+?)(?=\b(?:i\s+should|to\s*do|need\s+to|have\s+to|pending|tomorrow|tommorow|next)\b|$)",
+                q,
+                re.IGNORECASE,
+            )
+            todo_match = re.search(
+                r"\b(?:i\s+should|to\s*do(?:\s*list)?|need\s+to|have\s+to|pending(?:\s+tasks?)?|next\s+steps?)\s*(?:is|are|:)?\s*(.+?)(?=\b(?:tomorrow|tommorow|next\s+day)\b|$)",
+                q,
+                re.IGNORECASE,
+            )
+            tomorrow_match = re.search(
+                r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$",
+                q,
+                re.IGNORECASE,
+            )
 
-            if not has_topic and len(extra_tokens) == 0:
-                return (
-                    "What would you like to write about? Tell me what you'd like to put down "
-                    "(e.g. thoughts, tasks, meeting notes, or ideas) and I will format it for you."
-                )
+            bullet_lines = []
+            if completed_match and completed_match.group(1).strip():
+                c_raw = completed_match.group(1).strip(" .:-")
+                c_text = re.sub(r"\s+and\s+", " & ", c_raw)
+                bullet_lines.append(f"• **Completed Today**: {c_text.capitalize()}")
 
-            topic = topic_match.group(1).strip().title() if has_topic else " ".join(extra_tokens).title()
+            if todo_match and todo_match.group(1).strip():
+                t_raw = todo_match.group(1).strip(" .:-")
+                bullet_lines.append(f"• **Action Item**: {t_raw.capitalize()}")
+
+            if tomorrow_match and tomorrow_match.group(1).strip():
+                m_raw = tomorrow_match.group(1).strip(" .:-")
+                bullet_lines.append(f"• **Tomorrow**: {m_raw.capitalize()}")
+
+            if not bullet_lines:
+                clean_content = re.sub(
+                    r"^(?:please\s+)?(?:writeme|write\s*me|createme|create\s*me|makeme|make\s*me|draftme|draft\s*me|record|log)\s*(?:todays?\s+|my\s+|a\s+)?(?:completed\s+tasks?|tasks?|work|log)?\s*",
+                    "",
+                    q,
+                    flags=re.IGNORECASE,
+                ).strip(" .:-")
+                if len(clean_content) > 3:
+                    bullet_lines.append(f"• **Tasks**: {clean_content.capitalize()}")
+                else:
+                    return (
+                        "What tasks or activities did you work on today? "
+                        "Please tell me what you completed and any upcoming items, and I'll draft your task log for you."
+                    )
+
             return (
-                f"Here is a draft note on **{topic}**:\n\n"
-                f"# {topic}\n\n"
-                "### Overview\n"
-                f"A structured capture of ideas and key insights regarding {topic}.\n\n"
-                "### Key Points & Notes\n"
-                f"• **Core Concept**: Understanding the fundamental principles of {topic}.\n"
-                "• **Actionable Takeaways**: Practical steps to implement or explore next.\n"
-                "• **Questions & Open Ideas**: Areas for future research and reflection.\n\n"
-                "### Next Steps\n"
-                "• Review and expand upon these initial thoughts.\n\n"
+                "Here is your daily task & activity log:\n\n"
+                "📋 **Daily Task Log**\n"
+                + "\n".join(bullet_lines) + "\n\n"
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 2b. Add / Append Item Intent (e.g. "also add i have grocery too", "add grocery too", "include dinner")
+        # 2. Add / Append Item Intent (e.g. "also add i have grocery too", "add grocery too", "include dinner")
         is_add_item = bool(
             re.search(
                 r"\b(also\s+add|add\s+also|can\s+you\s+add|please\s+add|include|append|and\s+also|"
@@ -631,6 +652,50 @@ class GroundedLocalLLMProvider(LLMProvider):
                     f"• {new_item.capitalize()}\n\n"
                     "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )
+
+        # 3. Writing & Drafting Intent (including 'writeme', 'create a note', 'make me a note', 'take a note')
+        is_writing_prompt = bool(
+            re.search(
+                r"\b((?:writeme|write\s*me|createme|create\s*me|makeme|make\s*me|draftme|draft\s*me)\b.*|"
+                r"(?:create|make|write|draft|take|save|start|new|record)\s+(?:mea\s+|me\s+a\s+|a\s+|me\s+|my\s+)?(?:note|memo|entry|schedule|draft|post|article|thoughts?|ideas?)|"
+                r"i\s+want\s+to\s+write|help\s+me\s+write|write\s+something|draft\s+something|"
+                r"start\s+writing|let'?s\s+write|write\s+(me\s+)?a\s+(note|story|poem|essay|email|post|letter|article)|"
+                r"write\s+(me\s+)?about|draft\s+(me\s+)?a)\b",
+                q_clean,
+            )
+        )
+        if is_writing_prompt:
+            # Check if user gave a specific topic or just said "i want to write something"
+            topic_match = re.search(r"\b(?:about|on|for|titled|which)\s+(.+)$", q_clean)
+            has_topic = topic_match and len(topic_match.group(1).strip()) > 3
+            writing_meta = {
+                "i", "want", "to", "write", "help", "me", "something", "draft", "start",
+                "writing", "lets", "let", "s", "a", "an", "the", "note", "notes", "down",
+                "can", "you", "please", "create", "make", "take", "new", "mea",
+                "writeme", "createme", "makeme", "draftme"
+            }
+            extra_tokens = [w for w in q_clean.split() if w not in writing_meta]
+
+            if not has_topic and len(extra_tokens) == 0:
+                return (
+                    "What would you like to write about? Tell me what you'd like to put down "
+                    "(e.g. thoughts, tasks, meeting notes, or ideas) and I will format it for you."
+                )
+
+            topic = topic_match.group(1).strip().title() if has_topic else " ".join(extra_tokens).title()
+            return (
+                f"Here is a draft note on **{topic}**:\n\n"
+                f"# {topic}\n\n"
+                "### Overview\n"
+                f"A structured capture of ideas and key insights regarding {topic}.\n\n"
+                "### Key Points & Notes\n"
+                f"• **Core Concept**: Understanding the fundamental principles of {topic}.\n"
+                "• **Actionable Takeaways**: Practical steps to implement or explore next.\n"
+                "• **Questions & Open Ideas**: Areas for future research and reflection.\n\n"
+                "### Next Steps\n"
+                "• Review and expand upon these initial thoughts.\n\n"
+                "Would you like me to save this into your notes? Reply 'approve' to save it."
+            )
 
         # 3. Check if following up to an assistant question in conversation history
         last_assistant_msg = ""
