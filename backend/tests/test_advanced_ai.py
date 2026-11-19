@@ -667,6 +667,38 @@ def test_agent_intent_done_undone_task_list(client, auth_headers_user_a):
     assert "**" not in task_notes[0]["title"]
     assert "**" not in task_notes[0]["content"]
 
+    # Step 3: User updates the daily task log with new item
+    # "on daily task log add also to tell megfira amnot available tommorow too"
+    turn3 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "on daily task log add also to tell megfira amnot available tommorow too"},
+        headers=auth_headers_user_a,
+    )
+    assert turn3.status_code == 201
+    ans3 = turn3.json()["assistant_message"]["content"]
+    assert "daily task log" in ans3.lower()
+    assert "9 pm schedule" not in ans3.lower()
+    assert "megfira" in ans3.lower()
+    assert "approve" in ans3.lower()
+
+    # Step 4: User approves updated task log
+    turn4 = client.post(
+        f"/api/v1/ai/conversations/{conv_id}/messages",
+        json={"query": "approve"},
+        headers=auth_headers_user_a,
+    )
+    assert turn4.status_code == 201
+    ans4 = turn4.json()["assistant_message"]["content"]
+    assert "approved" in ans4.lower()
+
+    # Verify updated note in database has megfira
+    notes_res2 = client.get("/api/v1/notes", headers=auth_headers_user_a)
+    assert notes_res2.status_code == 200
+    task_notes2 = [n for n in notes_res2.json()["items"] if "portfolio" in n["content"].lower()]
+    assert len(task_notes2) >= 1
+    assert "megfira" in task_notes2[0]["content"].lower()
+    assert "**" not in task_notes2[0]["content"]
+
 
 
 

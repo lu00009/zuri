@@ -646,18 +646,23 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 2. Add / Append Item Intent (e.g. "also add i have grocery too", "add grocery too", "include dinner")
+        # 2. Add / Append Item Intent (e.g. "also add i have grocery too", "on daily task log add also...")
         is_add_item = bool(
             re.search(
                 r"\b(also\s+add|add\s+also|can\s+you\s+add|please\s+add|include|append|and\s+also|"
-                r"add\s+.*?to\s+(?:the\s+)?(?:schedule|routine|note|list)|add\s+.*?(?:too|as\s+well))\b",
+                r"add\s+.*?to\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|schedule|routine|note|list)|"
+                r"(?:on|in|to)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|schedule|note)\s+add|"
+                r"add\s+.*?(?:too|as\s+well))\b",
                 q_clean,
             )
         )
         if is_add_item:
             # Clean the new item
             new_item = re.sub(
-                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*(?:to\s+(?:it|my\s+schedule|my\s+notes?|this))?\s*(?:that\s+)?(?:i\s+have\s+|i\s+had\s+to\s+|i\s+have\s+to\s+|i\s+need\s+to\s+)?",
+                r"^(?:(?:on|to|in)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|tasks?|notes?|schedule)\s*)?"
+                r"(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*"
+                r"(?:(?:to|on|in)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|tasks?|it|this|notes?))?\s*"
+                r"(?:that\s+)?(?:i\s+have\s+|i\s+had\s+to\s+|i\s+have\s+to\s+|i\s+need\s+to\s+|to\s+)?",
                 "",
                 q,
                 flags=re.IGNORECASE,
@@ -670,7 +675,7 @@ class GroundedLocalLLMProvider(LLMProvider):
                 flags=re.IGNORECASE,
             ).strip()
 
-            # Look in conversation history for the most recent schedule or note containing items
+            # Look in conversation history for the most recent schedule, task log, or note containing items
             draft_msg = None
             if conversation_history:
                 for m in reversed(conversation_history):
@@ -679,9 +684,59 @@ class GroundedLocalLLMProvider(LLMProvider):
                         draft_msg = c
                         break
 
-            if draft_msg and ("schedule" in draft_msg.lower() or "•" in draft_msg):
+            # Case A: Updating a Daily Task Log
+            if draft_msg and (re.search(r"\b(daily\s+task\s+log|task\s+log|📋)\b", draft_msg, re.IGNORECASE)):
+                completed_line = None
+                todo_line = None
+                tomorrow_line = None
+
+                for line in draft_msg.split("\n"):
+                    line_clean = line.strip()
+                    if re.search(r"^[•\-]\s*\*\*Completed", line_clean, re.IGNORECASE):
+                        completed_line = re.sub(r"^[•\-]\s*\*\*Completed(?:\s+Today)?\*\*:\s*", "", line_clean).strip()
+                    elif re.search(r"^[•\-]\s*\*\*(?:Pending|To-?Do|Action\s+Item)", line_clean, re.IGNORECASE):
+                        todo_line = re.sub(r"^[•\-]\s*\*\*(?:Pending\s*/\s*To-?Do|Pending|To-?Do|Action\s+Item)\*\*:\s*", "", line_clean).strip()
+                    elif re.search(r"^[•\-]\s*\*\*Tomorrow", line_clean, re.IGNORECASE):
+                        tomorrow_line = re.sub(r"^[•\-]\s*\*\*Tomorrow\*\*:\s*", "", line_clean).strip()
+
+                if re.search(r"\b(tomorrow|tommorow|next\s+day)\b", new_item, re.IGNORECASE):
+                    clean_tomorrow_item = re.sub(r"\s+(?:tomorrow|tommorow|next\s+day)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
+                    if tomorrow_line:
+                        tomorrow_line = f"{tomorrow_line}, {clean_tomorrow_item.capitalize()}"
+                    else:
+                        tomorrow_line = clean_tomorrow_item.capitalize()
+                elif re.search(r"\b(done|completed|finished)\b", new_item, re.IGNORECASE):
+                    clean_done_item = re.sub(r"\s+(?:done|completed|finished)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
+                    if completed_line:
+                        completed_line = f"{completed_line}, {clean_done_item.capitalize()}"
+                    else:
+                        completed_line = clean_done_item.capitalize()
+                else:
+                    clean_todo_item = re.sub(r"\s+(?:undone|pending|to\s*do)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
+                    if todo_line:
+                        todo_line = f"{todo_line}, {clean_todo_item.capitalize()}"
+                    else:
+                        todo_line = clean_todo_item.capitalize()
+
+                bullet_lines = []
+                if completed_line:
+                    bullet_lines.append(f"• **Completed**: {completed_line}")
+                if todo_line:
+                    bullet_lines.append(f"• **Pending / To-Do**: {todo_line}")
+                if tomorrow_line:
+                    bullet_lines.append(f"• **Tomorrow**: {tomorrow_line}")
+
+                return (
+                    "Here is your updated daily task & activity log:\n\n"
+                    "📋 **Daily Task Log**\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+            # Case B: Updating a Timed Schedule
+            elif draft_msg and ("schedule" in draft_msg.lower() or "📅" in draft_msg):
                 time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", draft_msg, re.IGNORECASE)
-                target_time = time_match.group(1).upper() if time_match else "9 PM"
+                target_time = time_match.group(1).upper() if time_match else "Upcoming"
 
                 bullet_items = []
                 for line in draft_msg.split("\n"):
@@ -695,9 +750,10 @@ class GroundedLocalLLMProvider(LLMProvider):
                     bullet_items.append(new_item.capitalize())
 
                 bullet_lines = [f"• **Part {idx + 1}**: {it}" for idx, it in enumerate(bullet_items)]
+                header_title = f"{target_time} Schedule" if target_time != "Upcoming" else "Schedule"
                 return (
                     f"Here is your updated schedule for {target_time}:\n\n"
-                    f"📅 **{target_time} Schedule**\n"
+                    f"📅 **{header_title}**\n"
                     + "\n".join(bullet_lines) + "\n\n"
                     "Would you like me to save this into your notes? Reply 'approve' to save it."
                 )

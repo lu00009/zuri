@@ -17,6 +17,19 @@ class ConversationalIntent {
     final words = normalized.split(' ');
     final numWords = words.length;
 
+    // Never intercept approval, save, or confirmation actions: they belong to the agent state machine!
+    if (const {
+      'approve', 'approved', 'approve it', 'confirm', 'confirmed',
+      'save', 'save it', 'save this', 'save note', 'save to notes',
+      'yes save it', 'yes please save it', 'please save it', 'yes save',
+      'okay save it', 'ok save it'
+    }.contains(normalized)) {
+      return null;
+    }
+    if (RegExp(r'\b(approve|save\s+(?:this|it|to\s+notes?)|add\s+to\s+notes?)\b').hasMatch(normalized)) {
+      return null;
+    }
+
     // If query has explicit memory-seeking keywords, it should search notes
     final memoryPattern = RegExp(
       r'\b(save|saved|my\s+notes?|notes?\s+about|notes?\s+on|did\s+i\s+save|what\s+did\s+i|what\s+do\s+i\s+have|my\s+projects?|my\s+ideas?|my\s+learnings?|my\s+meetings?|remind\s+me|search\s+for|find\s+notes?|look\s+up|what\s+were\s+my|check\s+my\s+notes?|in\s+my\s+notes?|from\s+my\s+notes?)\b',
@@ -155,7 +168,7 @@ class ConversationalIntent {
     }
 
     // 10. Short conversational statements (1 to 2 words that aren't specific technical nouns)
-    if (numWords <= 2 && !RegExp(r'\b(note|save|code|pass|key|email|task|todo|project|date|plan|meet|buy|call)\b').hasMatch(normalized)) {
+    if (numWords <= 2 && !RegExp(r'\b(note|save|approve|confirm|code|pass|key|email|task|todo|project|date|plan|meet|buy|call)\b').hasMatch(normalized)) {
       return "I'm listening! Feel free to ask me anything about your notes, or share what you'd like to talk about.";
     }
 
