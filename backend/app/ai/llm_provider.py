@@ -526,46 +526,103 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 1b. Daily Task Log / Work Log / Completed Tasks Intent
+        # 1b. Daily Task Log / Work Log / Tasks Intent (including 'today ... done', 'undone', 'completed', 'tasks')
         is_task_log = bool(
             re.search(
-                r"\b((?:writeme|write\s*me|log|record|track|draftme|draft\s*me|createme|create\s*me|note\s*down)\s+"
-                r"(?:my\s+|a\s+|todays?\s+|daily\s+)?(?:completed\s+tasks?|tasks?|work|activity|log|updates?)|"
-                r"(?:completed\s+tasks?|tasks?\s+completed|todays?\s+(?:completed\s+)?tasks?|work\s+log|daily\s+log))\b",
+                r"\b(completed\s+tasks?|tasks?\s+completed|todays?\s+(?:completed\s+)?tasks?|"
+                r"undone|done|to-?do|checklist|action\s+items?|pending\s+tasks?|"
+                r"(?:writeme|write\s*me|createme|create\s*me|log|record|track|draftme|draft\s*me)\s+"
+                r"(?:my\s+|a\s+|todays?\s+|daily\s+)?(?:completed|tasks?|work|activity|log|updates?|today|done|undone))\b",
                 q_clean,
             )
         )
         if is_task_log:
-            # Segment into Completed Today, Action Items / To-Do, and Tomorrow
-            completed_match = re.search(
-                r"\b(?:today(?:'s|s)?\s+)?(?:completed\s+tasks?|tasks?\s+completed|completed|done|finished)\s*(?:is|are|:)?\s*(.+?)(?=\b(?:i\s+should|to\s*do|need\s+to|have\s+to|pending|tomorrow|tommorow|next)\b|$)",
+            clean = re.sub(
+                r"^(?:please\s+)?(?:writeme|write\s*me|createme|create\s*me|makeme|make\s*me|draftme|draft\s*me|log|record|track|take\s*down|note\s*down)\s*",
+                "",
                 q,
-                re.IGNORECASE,
-            )
-            todo_match = re.search(
-                r"\b(?:i\s+should|to\s*do(?:\s*list)?|need\s+to|have\s+to|pending(?:\s+tasks?)?|next\s+steps?)\s*(?:is|are|:)?\s*(.+?)(?=\b(?:tomorrow|tommorow|next\s+day)\b|$)",
-                q,
-                re.IGNORECASE,
-            )
-            tomorrow_match = re.search(
-                r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$",
-                q,
-                re.IGNORECASE,
-            )
+                flags=re.IGNORECASE,
+            ).strip()
+
+            # 1. Tomorrow / Upcoming segment
+            tomorrow_match = re.search(r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$", clean, re.IGNORECASE)
+            tomorrow_text = tomorrow_match.group(1).strip(" .:-") if tomorrow_match else ""
+            main_text = clean[:tomorrow_match.start()].strip() if tomorrow_match else clean
+
+            # Clean leading "today" / "daily"
+            main_text = re.sub(r"^(?:today(?:'s|s)?|daily)\s*", "", main_text, flags=re.IGNORECASE).strip()
+            main_text = re.sub(r"\s+and\s*$", "", main_text, flags=re.IGNORECASE).strip()
+
+            items_done = []
+            items_undone = []
+            items_general = []
+
+            # Check for "completed task(s)" or "i should" phrasing first
+            if re.search(r"\b(?:completed\s+tasks?|tasks?\s+completed|i\s+should)\b", main_text, re.IGNORECASE):
+                completed_match = re.search(
+                    r"\b(?:completed\s+tasks?|tasks?\s+completed)\s*(?:is|are|:)?\s*(.+?)(?=\b(?:i\s+should|to\s*do|need\s+to|have\s+to|pending|undone)\b|$)",
+                    main_text,
+                    re.IGNORECASE,
+                )
+                todo_match = re.search(
+                    r"\b(?:i\s+should|to\s*do(?:\s*list)?|need\s+to|have\s+to|pending|undone)\s*(?:is|are|:)?\s*(.+)$",
+                    main_text,
+                    re.IGNORECASE,
+                )
+                if completed_match and completed_match.group(1).strip():
+                    c_text = completed_match.group(1).strip(" .:-")
+                    c_text = re.sub(r"\s+and\s+", " & ", c_text)
+                    items_done.append(c_text)
+                if todo_match and todo_match.group(1).strip():
+                    items_undone.append(todo_match.group(1).strip(" .:-"))
+
+            # Check for "done" / "undone" postfixed or prefixed
+            elif re.search(r"\b(undone|done)\b", main_text, re.IGNORECASE):
+                # Prefix pattern: "done: a. undone: b"
+                prefix_done = re.search(r"\b(?:done|completed|finished)\s*[:=]\s*(.+?)(?=\b(?:undone|pending|todo|to\s*do)\b|$)", main_text, re.IGNORECASE)
+                prefix_undone = re.search(r"\b(?:undone|pending|todo|to\s*do)\s*[:=]\s*(.+?)(?=\b(?:done|completed|finished)\b|$)", main_text, re.IGNORECASE)
+
+                if prefix_done or prefix_undone:
+                    if prefix_done:
+                        items_done.extend([p.strip() for p in re.split(r",|;|\band\b", prefix_done.group(1)) if p.strip()])
+                    if prefix_undone:
+                        items_undone.extend([p.strip() for p in re.split(r",|;|\band\b", prefix_undone.group(1)) if p.strip()])
+                else:
+                    # Postfixed pattern: "portfolio done freelance.com porfolio setup undone and blockchain deploy undone"
+                    matches = list(re.finditer(r"\b(undone|done)\b", main_text, re.IGNORECASE))
+                    last_pos = 0
+                    for m in matches:
+                        status = m.group(1).lower()
+                        chunk = main_text[last_pos:m.start()].strip()
+                        chunk = re.sub(r"^(?:and|,|;|\.)\s*", "", chunk, flags=re.IGNORECASE).strip()
+                        if chunk:
+                            if status == "undone":
+                                items_undone.append(chunk)
+                            else:
+                                items_done.append(chunk)
+                        last_pos = m.end()
+
+                    trailing = main_text[last_pos:].strip()
+                    trailing = re.sub(r"^(?:and|,|;|\.)\s*", "", trailing, flags=re.IGNORECASE).strip()
+                    if trailing and len(trailing) > 2:
+                        items_undone.append(trailing)
+            else:
+                # Fallback to tasks listing
+                parts = re.split(r",|;|\band\b|\n", main_text)
+                items_general = [p.strip(" .:-") for p in parts if p.strip(" .:-") and len(p.strip()) > 1]
 
             bullet_lines = []
-            if completed_match and completed_match.group(1).strip():
-                c_raw = completed_match.group(1).strip(" .:-")
-                c_text = re.sub(r"\s+and\s+", " & ", c_raw)
-                bullet_lines.append(f"• **Completed Today**: {c_text.capitalize()}")
-
-            if todo_match and todo_match.group(1).strip():
-                t_raw = todo_match.group(1).strip(" .:-")
-                bullet_lines.append(f"• **Action Item**: {t_raw.capitalize()}")
-
-            if tomorrow_match and tomorrow_match.group(1).strip():
-                m_raw = tomorrow_match.group(1).strip(" .:-")
-                bullet_lines.append(f"• **Tomorrow**: {m_raw.capitalize()}")
+            if items_done:
+                formatted_done = ", ".join(it.capitalize() for it in items_done)
+                bullet_lines.append(f"• **Completed**: {formatted_done}")
+            if items_undone:
+                formatted_undone = ", ".join(it.capitalize() for it in items_undone)
+                bullet_lines.append(f"• **Pending / To-Do**: {formatted_undone}")
+            if items_general:
+                for it in items_general:
+                    bullet_lines.append(f"• [ ] {it.capitalize()}")
+            if tomorrow_text:
+                bullet_lines.append(f"• **Tomorrow**: {tomorrow_text.capitalize()}")
 
             if not bullet_lines:
                 clean_content = re.sub(
