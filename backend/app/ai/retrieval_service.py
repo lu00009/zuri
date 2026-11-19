@@ -177,9 +177,20 @@ class RetrievalService:
         Supports cross-memory querying, comparison, and change detection.
         Separates conversational intent (greetings/chit-chat) so they never trigger note search.
         """
+        # Fetch active notes so agent can reference existing notes if needed
+        active_notes = (
+            db.query(Note)
+            .filter(Note.user_id == user_id, Note.is_deleted.is_(False))
+            .order_by(Note.updated_at.desc())
+            .all()
+        )
+        user_notes = [{"title": n.title, "content": n.content} for n in active_notes]
+
         # Conversational & Agent check: Greetings, writing, scheduling, and generative agent tasks
         conversational_reply = self.llm_provider._detect_conversational_intent(query)
-        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(query)
+        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(
+            query, user_notes=user_notes
+        )
         if agent_reply:
             return AiAskResponse(
                 answer=agent_reply,
@@ -607,8 +618,17 @@ class RetrievalService:
             )
 
         # 1. Conversational & Agent intent check: Greetings, chit-chat, writing, scheduling, and generative agent tasks
+        active_notes = (
+            db.query(Note)
+            .filter(Note.user_id == user_id, Note.is_deleted.is_(False))
+            .order_by(Note.updated_at.desc())
+            .all()
+        )
+        user_notes = [{"title": n.title, "content": n.content} for n in active_notes]
         conversational_reply = self.llm_provider._detect_conversational_intent(query)
-        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(query, history_list)
+        agent_reply = conversational_reply or self.llm_provider._detect_agent_intent(
+            query, history_list, user_notes=user_notes
+        )
         if agent_reply:
             user_msg = ConversationMessage(
                 conversation_id=conversation_id,

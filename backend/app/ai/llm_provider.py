@@ -421,6 +421,7 @@ class GroundedLocalLLMProvider(LLMProvider):
         cls,
         query: str,
         conversation_history: list[dict[str, str]] | None = None,
+        user_notes: list[dict[str, str]] | None = None,
     ) -> str | None:
         """
         Detects if user is asking Zuri to act as an agent (e.g. write, draft, plan, schedule,
@@ -449,7 +450,278 @@ class GroundedLocalLLMProvider(LLMProvider):
 
         # Built-in Agent Engine:
 
-        # 1. Schedule / Timetable / Routine Intent (handling common misspellings like 'scedule', 'chedule')
+        # 1. Add / Append Item Intent (e.g. "also add i have grocery too", "on daily task log add also...", "add X to my schedule")
+        # Must be evaluated before creation intents so that follow-up additions strictly preserve all existing content.
+        is_add_item = False
+        target_name = None
+        raw_item = None
+
+        m_add_prefix = re.match(
+            r"^(?:on|in|to)\s+(?:the\s+|my\s+)?(?P<target>[a-z0-9\s\-_:']{2,40}?)\s+(?:add\s+also|also\s+add|add|append|include|put)\s*(?P<rest>.*)$",
+            q,
+            re.IGNORECASE,
+        )
+        if m_add_prefix:
+            is_add_item = True
+            target_name = m_add_prefix.group("target").strip()
+            raw_item = m_add_prefix.group("rest").strip()
+        else:
+            m_add_standard = re.match(
+                r"^(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|and\s+also\s+add|and\s+add|and\s+also|add|include|append|put)\s*(?P<rest>.*)$",
+                q,
+                re.IGNORECASE,
+            )
+            if m_add_standard:
+                is_add_item = True
+                rest = m_add_standard.group("rest").strip()
+                m_target_post = re.search(
+                    r"\b(?:to|in|on|into)\s+(?:the\s+|my\s+)?(?P<target>[a-z0-9\s\-_:']{2,40}?)(?:\s+(?:too|as\s+well|please))?[.!?]*$",
+                    rest,
+                    re.IGNORECASE,
+                )
+                if m_target_post:
+                    target_name = m_target_post.group("target").strip()
+                    raw_item = rest[:m_target_post.start()].strip()
+                else:
+                    target_name = None
+                    raw_item = rest
+            elif (
+                re.search(r"\b(?:also\s+add|add\s+also|can\s+you\s+(?:also\s+)?add|please\s+(?:also\s+)?add|include\s+also|append\s+to|add\s+to|add\s+in|add\s+on)\b", q, re.IGNORECASE)
+                or (re.search(r"\badd\b", q, re.IGNORECASE) and re.search(r"\b(?:too|as\s+well)\b", q, re.IGNORECASE))
+            ):
+                if not re.search(r"^(?:how\s+(?:do\s+i|can\s+i|to)|where\s+(?:do\s+i|can\s+i)|why)\b", q_clean):
+                    is_add_item = True
+                    cleaned_q = re.sub(
+                        r"^(?:(?:on|to|in)\s+(?:the\s+|my\s+)?[a-z0-9\s\-_:']{2,40}?\s+)?"
+                        r"(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|and\s+also\s+add|and\s+add|and\s+also|add|include|append|put)\s*",
+                        "",
+                        q,
+                        flags=re.IGNORECASE,
+                    )
+                    raw_item = cleaned_q
+
+        if is_add_item and raw_item is not None:
+            # Strip trailing too, as well, please
+            raw_item = re.sub(r"\s+(?:too|as\s+well|please)[.!?]*$", "", raw_item, flags=re.IGNORECASE).strip(" .:-")
+
+            # Strip leading connector / colloquial words
+            raw_item = re.sub(
+                r"^(?:also\s+|that\s+|to\s+|i\s+(?:have|had|need|want)\s+(?:to\s+)?(?:\s+have)?(?:\s+a)?\s*|to\s+have\s+a\s*|to\s+have\s*|me\s+a\s*|a\s+|me\s+|my\s+)",
+                "",
+                raw_item,
+                flags=re.IGNORECASE,
+            ).strip(" .:-")
+
+            # Locate existing draft: first from conversation history, second from user_notes
+            draft_msg = None
+            if conversation_history:
+                for m in reversed(conversation_history):
+                    c = m.get("content", "")
+                    if m.get("role") == "assistant" and ("•" in c or "📋" in c or "📅" in c or "#" in c or "save this into your notes" in c.lower()):
+                        if target_name:
+                            target_norm = target_name.lower().replace(" ", "")
+                            c_norm = c.lower().replace(" ", "")
+                            if target_norm in c_norm or ("task" in target_norm and "task" in c_norm) or ("schedule" in target_norm and "schedule" in c_norm):
+                                draft_msg = c
+                                break
+                        else:
+                            draft_msg = c
+                            break
+                if not draft_msg and conversation_history:
+                    for m in reversed(conversation_history):
+                        c = m.get("content", "")
+                        if m.get("role") == "assistant" and "•" in c:
+                            draft_msg = c
+                            break
+
+            if not draft_msg and user_notes:
+                for n in user_notes:
+                    t = n.get("title", "")
+                    c = n.get("content", "")
+                    if target_name:
+                        target_norm = target_name.lower().replace(" ", "")
+                        t_norm = t.lower().replace(" ", "")
+                        if target_norm in t_norm or (("task" in target_norm or "log" in target_norm) and ("task" in t_norm or "log" in t_norm)) or ("schedule" in target_norm and "schedule" in t_norm):
+                            draft_msg = f"# {t}\n\n{c}"
+                            break
+                    elif "task log" in t.lower() or "schedule" in t.lower():
+                        draft_msg = f"# {t}\n\n{c}"
+                        break
+                if not draft_msg and user_notes:
+                    top_n = user_notes[0]
+                    draft_msg = f"# {top_n.get('title')}\n\n{top_n.get('content')}"
+
+            is_task_draft = bool(
+                (draft_msg and re.search(r"\b(daily\s+task\s+log|task\s+log|📋)\b", draft_msg, re.IGNORECASE))
+                or (target_name and re.search(r"\b(task\s+log|tasks?|daily)\b", target_name, re.IGNORECASE))
+            )
+            is_schedule_draft = bool(
+                (draft_msg and ("schedule" in draft_msg.lower() or "📅" in draft_msg))
+                or (target_name and "schedule" in target_name.lower())
+            )
+
+            # Case A: Adding to a Daily Task Log (Preserves 100% of existing items across all sections)
+            if is_task_draft:
+                existing_completed = []
+                existing_todo = []
+                existing_tomorrow = []
+                existing_other = []
+
+                if draft_msg:
+                    for line in draft_msg.split("\n"):
+                        line_clean = line.strip()
+                        if not line_clean.startswith("•") and not line_clean.startswith("-"):
+                            continue
+                        if re.search(r"^[•\-]\s*(?:\*\*)?Completed", line_clean, re.IGNORECASE):
+                            text = re.sub(r"^[•\-]\s*(?:\*\*)?Completed(?:\s+Today)?(?:\*\*)?:\s*", "", line_clean, flags=re.IGNORECASE).strip()
+                            if text:
+                                existing_completed.extend([x.strip() for x in re.split(r",|&", text) if x.strip()])
+                        elif re.search(r"^[•\-]\s*(?:\*\*)?(?:Pending|To-?Do|Action\s+Item)", line_clean, re.IGNORECASE):
+                            text = re.sub(r"^[•\-]\s*(?:\*\*)?(?:Pending\s*/\s*To-?Do|Pending|To-?Do|Action\s+Item)(?:\*\*)?:\s*", "", line_clean, flags=re.IGNORECASE).strip()
+                            if text:
+                                existing_todo.extend([x.strip() for x in re.split(r",|&", text) if x.strip()])
+                        elif re.search(r"^[•\-]\s*(?:\*\*)?Tomorrow", line_clean, re.IGNORECASE):
+                            text = re.sub(r"^[•\-]\s*(?:\*\*)?Tomorrow(?:\*\*)?:\s*", "", line_clean, flags=re.IGNORECASE).strip()
+                            if text:
+                                existing_tomorrow.extend([x.strip() for x in re.split(r",|&", text) if x.strip()])
+                        else:
+                            text = re.sub(r"^[•\-]\s*(?:\[[\sx]\]\s*)?", "", line_clean).strip()
+                            if text:
+                                existing_other.append(text)
+
+                # Parse new items from raw_item
+                tomorrow_match = re.search(r"\b(?:tomorrow|tommorow|next\s+day)\s*(?:is|are|:)?\s*(.+)$", raw_item, re.IGNORECASE)
+                if tomorrow_match:
+                    t_text = tomorrow_match.group(1).strip(" .:-")
+                    raw_item = raw_item[:tomorrow_match.start()].strip()
+                    if t_text:
+                        existing_tomorrow.append(t_text)
+                elif re.search(r"\b(tomorrow|tommorow|next\s+day)\b", raw_item, re.IGNORECASE):
+                    clean_t = re.sub(r"\b(?:tomorrow|tommorow|next\s+day)\b", "", raw_item, flags=re.IGNORECASE).strip(" .:-")
+                    if clean_t:
+                        existing_tomorrow.append(clean_t)
+                    raw_item = ""
+
+                if raw_item:
+                    if re.search(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE):
+                        matches = list(re.finditer(r"\b(undone|done|completed|finished)\b", raw_item, re.IGNORECASE))
+                        last_pos = 0
+                        for m in matches:
+                            status = m.group(1).lower()
+                            chunk = raw_item[last_pos:m.start()].strip()
+                            chunk = re.sub(r"^(?:and|,|;|\.)\s*", "", chunk, flags=re.IGNORECASE).strip()
+                            if chunk:
+                                if status in ("undone", "pending"):
+                                    existing_todo.append(chunk)
+                                else:
+                                    existing_completed.append(chunk)
+                            last_pos = m.end()
+                        trailing = raw_item[last_pos:].strip()
+                        trailing = re.sub(r"^(?:and|,|;|\.)\s*", "", trailing, flags=re.IGNORECASE).strip()
+                        if trailing and len(trailing) > 2:
+                            existing_todo.append(trailing)
+                    else:
+                        parts = [p.strip() for p in re.split(r",|;|\band\b", raw_item) if p.strip()]
+                        for p in parts:
+                            p_clean = re.sub(r"^(?:undone|pending|to\s*do)\s*", "", p, flags=re.IGNORECASE).strip(" .:-")
+                            if p_clean:
+                                existing_todo.append(p_clean)
+
+                bullet_lines = []
+                if existing_completed:
+                    bullet_lines.append(f"• **Completed**: {', '.join(it.capitalize() for it in existing_completed)}")
+                if existing_todo:
+                    bullet_lines.append(f"• **Pending / To-Do**: {', '.join(it.capitalize() for it in existing_todo)}")
+                if existing_other:
+                    for it in existing_other:
+                        bullet_lines.append(f"• {it.capitalize()}")
+                if existing_tomorrow:
+                    bullet_lines.append(f"• **Tomorrow**: {', '.join(it.capitalize() for it in existing_tomorrow)}")
+
+                return (
+                    "Here is your updated daily task & activity log:\n\n"
+                    "📋 **Daily Task Log**\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+            # Case B: Adding to a Timed Schedule (Preserves 100% of existing items in order)
+            elif is_schedule_draft:
+                time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", draft_msg or "", re.IGNORECASE)
+                target_time = time_match.group(1).upper() if time_match else "Upcoming"
+
+                bullet_items = []
+                if draft_msg:
+                    for line in draft_msg.split("\n"):
+                        line = line.strip()
+                        if line.startswith("•") or line.startswith("-") or line.startswith("*"):
+                            item_text = re.sub(r"^[•\-\*]\s*(?:\*\*[^\*]+\*\*:\s*)?", "", line).strip()
+                            if item_text:
+                                bullet_items.append(item_text)
+
+                if raw_item:
+                    new_parts = [p.strip() for p in re.split(r",|;|\band\b", raw_item) if p.strip()]
+                    for p in new_parts:
+                        if p and p.lower() not in [b.lower() for b in bullet_items]:
+                            bullet_items.append(p)
+
+                bullet_lines = [f"• **Part {idx + 1}**: {it.capitalize()}" for idx, it in enumerate(bullet_items)]
+                header_title = f"{target_time} Schedule" if target_time != "Upcoming" else "Schedule"
+                return (
+                    f"Here is your updated schedule for {target_time}:\n\n"
+                    f"📅 **{header_title}**\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+            # Case C: Adding to a General Note (Preserves 100% of existing note items & title)
+            elif draft_msg:
+                title = target_name.title() if target_name else "Personal Note"
+                for line in draft_msg.split("\n"):
+                    line_clean = line.strip()
+                    if line_clean.startswith("#"):
+                        t = re.sub(r"^\#+\s*", "", line_clean).strip()
+                        if t:
+                            title = t
+                            break
+                    elif "**" in line_clean:
+                        m = re.search(r"\*\*([^\*\n]+)\*\*", line_clean)
+                        if m and len(m.group(1)) > 3 and "draft" not in m.group(1).lower():
+                            title = m.group(1).strip()
+                            break
+
+                existing_bullets = []
+                for line in draft_msg.split("\n"):
+                    line_clean = line.strip()
+                    if line_clean.startswith("•") or line_clean.startswith("-") or line_clean.startswith("*"):
+                        item_text = re.sub(r"^[•\-\*]\s*(?:\[[\sx]\]\s*)?(?:\*\*[^\*]+\*\*:\s*)?", "", line_clean).strip()
+                        if item_text:
+                            existing_bullets.append(item_text)
+
+                new_parts = [p.strip() for p in re.split(r",|;|\band\b|\n", raw_item) if p.strip()]
+                for p in new_parts:
+                    if p and p.lower() not in [b.lower() for b in existing_bullets]:
+                        existing_bullets.append(p)
+
+                bullet_lines = [f"• {b.capitalize()}" for b in existing_bullets]
+                return (
+                    f"Here is your updated draft note on **{title}**:\n\n"
+                    f"# {title}\n\n"
+                    + "\n".join(bullet_lines) + "\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+            # Case D: No previous note found - create initial draft for target
+            else:
+                title = target_name.title() if target_name else raw_item.capitalize()
+                return (
+                    f"Here is your draft note on **{title}**:\n\n"
+                    f"# {title}\n\n"
+                    f"• {raw_item.capitalize()}\n\n"
+                    "Would you like me to save this into your notes? Reply 'approve' to save it."
+                )
+
+        # 2. Schedule / Timetable / Routine Intent (handling common misspellings like 'scedule', 'chedule')
         is_schedule_request = bool(
             re.search(
                 r"\b(schedule|scedule|chedule|shedule|skedule|schedual|chedual|sched|routine|timetable|agenda|calendar|plan\s+my\s+(?:day|evening|night|morning|afternoon|week|tomorrow))\b",
@@ -646,127 +918,7 @@ class GroundedLocalLLMProvider(LLMProvider):
                 "Would you like me to save this into your notes? Reply 'approve' to save it."
             )
 
-        # 2. Add / Append Item Intent (e.g. "also add i have grocery too", "on daily task log add also...")
-        is_add_item = bool(
-            re.search(
-                r"\b(also\s+add|add\s+also|can\s+you\s+add|please\s+add|include|append|and\s+also|"
-                r"add\s+.*?to\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|schedule|routine|note|list)|"
-                r"(?:on|in|to)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|schedule|note)\s+add|"
-                r"add\s+.*?(?:too|as\s+well))\b",
-                q_clean,
-            )
-        )
-        if is_add_item:
-            # Clean the new item
-            new_item = re.sub(
-                r"^(?:(?:on|to|in)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|tasks?|notes?|schedule)\s*)?"
-                r"(?:can\s+you\s+)?(?:please\s+)?(?:also\s+add|add\s+also|add|include|append|and\s+also)\s*"
-                r"(?:(?:to|on|in)\s+(?:the\s+)?(?:daily\s+task\s+log|task\s+log|tasks?|it|this|notes?))?\s*"
-                r"(?:that\s+)?(?:i\s+have\s+|i\s+had\s+to\s+|i\s+have\s+to\s+|i\s+need\s+to\s+|to\s+)?",
-                "",
-                q,
-                flags=re.IGNORECASE,
-            )
-            new_item = re.sub(r"\s+(?:too|as\s+well|please)\.?$", "", new_item, flags=re.IGNORECASE).strip(" .:-")
-            new_item = re.sub(
-                r"^(?:me\s+a|a|me|my|that|i\s+(?:have|had|need|want)\s+to(?:\s+have)?(?:\s+a)?|to\s+have\s+a|to\s+have|to)\b\s*",
-                "",
-                new_item,
-                flags=re.IGNORECASE,
-            ).strip()
-
-            # Look in conversation history for the most recent schedule, task log, or note containing items
-            draft_msg = None
-            if conversation_history:
-                for m in reversed(conversation_history):
-                    c = m.get("content", "")
-                    if m.get("role") == "assistant" and "•" in c:
-                        draft_msg = c
-                        break
-
-            # Case A: Updating a Daily Task Log
-            if draft_msg and (re.search(r"\b(daily\s+task\s+log|task\s+log|📋)\b", draft_msg, re.IGNORECASE)):
-                completed_line = None
-                todo_line = None
-                tomorrow_line = None
-
-                for line in draft_msg.split("\n"):
-                    line_clean = line.strip()
-                    if re.search(r"^[•\-]\s*\*\*Completed", line_clean, re.IGNORECASE):
-                        completed_line = re.sub(r"^[•\-]\s*\*\*Completed(?:\s+Today)?\*\*:\s*", "", line_clean).strip()
-                    elif re.search(r"^[•\-]\s*\*\*(?:Pending|To-?Do|Action\s+Item)", line_clean, re.IGNORECASE):
-                        todo_line = re.sub(r"^[•\-]\s*\*\*(?:Pending\s*/\s*To-?Do|Pending|To-?Do|Action\s+Item)\*\*:\s*", "", line_clean).strip()
-                    elif re.search(r"^[•\-]\s*\*\*Tomorrow", line_clean, re.IGNORECASE):
-                        tomorrow_line = re.sub(r"^[•\-]\s*\*\*Tomorrow\*\*:\s*", "", line_clean).strip()
-
-                if re.search(r"\b(tomorrow|tommorow|next\s+day)\b", new_item, re.IGNORECASE):
-                    clean_tomorrow_item = re.sub(r"\s+(?:tomorrow|tommorow|next\s+day)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
-                    if tomorrow_line:
-                        tomorrow_line = f"{tomorrow_line}, {clean_tomorrow_item.capitalize()}"
-                    else:
-                        tomorrow_line = clean_tomorrow_item.capitalize()
-                elif re.search(r"\b(done|completed|finished)\b", new_item, re.IGNORECASE):
-                    clean_done_item = re.sub(r"\s+(?:done|completed|finished)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
-                    if completed_line:
-                        completed_line = f"{completed_line}, {clean_done_item.capitalize()}"
-                    else:
-                        completed_line = clean_done_item.capitalize()
-                else:
-                    clean_todo_item = re.sub(r"\s+(?:undone|pending|to\s*do)\b", "", new_item, flags=re.IGNORECASE).strip(" .:-")
-                    if todo_line:
-                        todo_line = f"{todo_line}, {clean_todo_item.capitalize()}"
-                    else:
-                        todo_line = clean_todo_item.capitalize()
-
-                bullet_lines = []
-                if completed_line:
-                    bullet_lines.append(f"• **Completed**: {completed_line}")
-                if todo_line:
-                    bullet_lines.append(f"• **Pending / To-Do**: {todo_line}")
-                if tomorrow_line:
-                    bullet_lines.append(f"• **Tomorrow**: {tomorrow_line}")
-
-                return (
-                    "Here is your updated daily task & activity log:\n\n"
-                    "📋 **Daily Task Log**\n"
-                    + "\n".join(bullet_lines) + "\n\n"
-                    "Would you like me to save this into your notes? Reply 'approve' to save it."
-                )
-
-            # Case B: Updating a Timed Schedule
-            elif draft_msg and ("schedule" in draft_msg.lower() or "📅" in draft_msg):
-                time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b", draft_msg, re.IGNORECASE)
-                target_time = time_match.group(1).upper() if time_match else "Upcoming"
-
-                bullet_items = []
-                for line in draft_msg.split("\n"):
-                    line = line.strip()
-                    if line.startswith("•") or line.startswith("-"):
-                        item_text = re.sub(r"^[•\-]\s*(?:\*\*[^\*]+\*\*:\s*)?", "", line).strip()
-                        if item_text:
-                            bullet_items.append(item_text)
-
-                if new_item:
-                    bullet_items.append(new_item.capitalize())
-
-                bullet_lines = [f"• **Part {idx + 1}**: {it}" for idx, it in enumerate(bullet_items)]
-                header_title = f"{target_time} Schedule" if target_time != "Upcoming" else "Schedule"
-                return (
-                    f"Here is your updated schedule for {target_time}:\n\n"
-                    f"📅 **{header_title}**\n"
-                    + "\n".join(bullet_lines) + "\n\n"
-                    "Would you like me to save this into your notes? Reply 'approve' to save it."
-                )
-            else:
-                title = new_item.capitalize() if new_item else "Personal Note"
-                return (
-                    f"Here is your draft note on **{title}**:\n\n"
-                    f"# {title}\n\n"
-                    f"• {new_item.capitalize()}\n\n"
-                    "Would you like me to save this into your notes? Reply 'approve' to save it."
-                )
-
-        # 3. Writing & Drafting Intent (including 'writeme', 'create a note', 'make me a note', 'take a note')
+        # 4. Writing & Drafting Intent (including 'writeme', 'create a note', 'make me a note', 'take a note')
         is_writing_prompt = bool(
             re.search(
                 r"\b((?:writeme|write\s*me|createme|create\s*me|makeme|make\s*me|draftme|draft\s*me)\b.*|"

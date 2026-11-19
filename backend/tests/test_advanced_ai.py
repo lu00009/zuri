@@ -678,6 +678,10 @@ def test_agent_intent_done_undone_task_list(client, auth_headers_user_a):
     ans3 = turn3.json()["assistant_message"]["content"]
     assert "daily task log" in ans3.lower()
     assert "9 pm schedule" not in ans3.lower()
+    # MUST strictly preserve all previous items without removing anything!
+    assert "portfolio" in ans3.lower()
+    assert "blockchain deploy" in ans3.lower()
+    assert "robel" in ans3.lower()
     assert "megfira" in ans3.lower()
     assert "approve" in ans3.lower()
 
@@ -691,13 +695,75 @@ def test_agent_intent_done_undone_task_list(client, auth_headers_user_a):
     ans4 = turn4.json()["assistant_message"]["content"]
     assert "approved" in ans4.lower()
 
-    # Verify updated note in database has megfira
+    # Verify updated note in database has megfira AND all original items preserved
     notes_res2 = client.get("/api/v1/notes", headers=auth_headers_user_a)
     assert notes_res2.status_code == 200
     task_notes2 = [n for n in notes_res2.json()["items"] if "portfolio" in n["content"].lower()]
     assert len(task_notes2) >= 1
+    assert "portfolio" in task_notes2[0]["content"].lower()
+    assert "blockchain deploy" in task_notes2[0]["content"].lower()
+    assert "robel" in task_notes2[0]["content"].lower()
     assert "megfira" in task_notes2[0]["content"].lower()
     assert "**" not in task_notes2[0]["content"]
+
+
+def test_add_item_preserves_all_edges(client, auth_headers_user_a):
+    """
+    Tests edge cases for add item:
+    1. Adding multiple done/undone items to a task log preserves 100% of existing items.
+    2. Adding to general note preserves title and all existing bullets.
+    3. Adding to schedule preserves existing parts and adds in sequence.
+    4. Adding when referencing an existing saved note in user_notes.
+    """
+    from app.ai.llm_provider import GroundedLocalLLMProvider
+
+    # Case 1: Multiple done/undone items
+    history = [
+        {"role": "user", "content": "today portfolio done and blockchain deploy undone"},
+        {"role": "assistant", "content": "📋 **Daily Task Log**\n• **Completed**: Portfolio\n• **Pending / To-Do**: Blockchain deploy\n\nReply 'approve' to save it."},
+    ]
+    res1 = GroundedLocalLLMProvider._detect_agent_intent("also add laundry done and call doctor undone", history)
+    assert "portfolio" in res1.lower()
+    assert "blockchain deploy" in res1.lower()
+    assert "laundry" in res1.lower()
+    assert "call doctor" in res1.lower()
+
+    # Case 2: General note preservation
+    note_history = [
+        {"role": "assistant", "content": "# Shopping List\n\n• Milk\n• Bread\n• Eggs\n\nReply 'approve' to save it."}
+    ]
+    res2 = GroundedLocalLLMProvider._detect_agent_intent("also add apples and oranges too", note_history)
+    assert "shopping list" in res2.lower()
+    assert "milk" in res2.lower()
+    assert "bread" in res2.lower()
+    assert "eggs" in res2.lower()
+    assert "apples" in res2.lower()
+    assert "oranges" in res2.lower()
+
+    # Case 3: Schedule preservation
+    sched_history = [
+        {"role": "assistant", "content": "📅 **5:00 Schedule**\n• **Part 1**: Team standup\n\nReply 'approve' to save it."}
+    ]
+    res3 = GroundedLocalLLMProvider._detect_agent_intent("add dinner at 8 pm to my schedule", sched_history)
+    assert "team standup" in res3.lower()
+    assert "dinner at 8 pm" in res3.lower()
+    assert "part 1" in res3.lower()
+    assert "part 2" in res3.lower()
+
+    # Case 4: Adding from user_notes in database when conversation history is empty
+    db_notes = [
+        {"title": "Daily Task Log", "content": "• Completed: Portfolio\n• Pending / To-Do: Freelance setup\n• Tomorrow: Meeting with robel"}
+    ]
+    res4 = GroundedLocalLLMProvider._detect_agent_intent(
+        "on daily task log add also workout done",
+        conversation_history=[],
+        user_notes=db_notes,
+    )
+    assert "portfolio" in res4.lower()
+    assert "workout" in res4.lower()
+    assert "freelance setup" in res4.lower()
+    assert "meeting with robel" in res4.lower()
+
 
 
 
