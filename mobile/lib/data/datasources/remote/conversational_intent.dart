@@ -17,7 +17,7 @@ class ConversationalIntent {
     final words = normalized.split(' ');
     final numWords = words.length;
 
-    // Never intercept approval, save, or confirmation actions: they belong to the agent state machine!
+    // Never intercept approval, save, folder creation, or confirmation actions: they belong to the agent state machine!
     if (const {
       'approve', 'approved', 'approve it', 'confirm', 'confirmed',
       'save', 'save it', 'save this', 'save note', 'save to notes',
@@ -26,7 +26,7 @@ class ConversationalIntent {
     }.contains(normalized)) {
       return null;
     }
-    if (RegExp(r'\b(approve|save\s+(?:this|it|to\s+notes?)|add\s+to\s+notes?)\b').hasMatch(normalized)) {
+    if (RegExp(r'\b(approve|save|folder|afolder|notebook|anotebook|collection|category|add\s+to\s+notes?)\b').hasMatch(normalized)) {
       return null;
     }
 

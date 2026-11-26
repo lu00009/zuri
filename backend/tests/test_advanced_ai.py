@@ -808,6 +808,31 @@ def test_mixed_add_remove_and_folder_creation_intent(client, auth_headers_user_a
     assert "according to your note" not in folder_res.lower()
     assert "daily task log" not in folder_res.lower()
 
+    # Typo resilient folder creation: "create afolder called lu"
+    folder_typo = "create afolder called lu"
+    folder_res_typo = GroundedLocalLLMProvider._detect_agent_intent(folder_typo)
+    assert folder_res_typo is not None
+    assert "lu" in folder_res_typo.lower()
+    assert "folder" in folder_res_typo.lower()
+
+    # Save to folder should NOT trigger folder creation
+    save_folder_q = "save the previous note on new folder"
+    save_res = GroundedLocalLLMProvider._detect_agent_intent(save_folder_q)
+    assert save_res is None  # Handled by approval flow in retrieval service, not folder creation
+
+    # Test retrieval service target folder extraction
+    from app.ai.retrieval_service import RetrievalService
+    hist_folder = [
+        {"role": "user", "content": "create a folder called lu"},
+        {"role": "assistant", "content": "I've created the folder **Lu** for you! 📁"},
+    ]
+    extracted = RetrievalService._extract_target_folder("save the previous note on new folder", hist_folder)
+    assert extracted == "Lu"
+
+    extracted_explicit = RetrievalService._extract_target_folder("save the previous note in folder lu", hist_folder)
+    assert extracted_explicit == "Lu"
+
+
 
 
 

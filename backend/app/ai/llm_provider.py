@@ -474,16 +474,25 @@ class GroundedLocalLLMProvider(LLMProvider):
 
         # Built-in Agent Engine:
 
-        # 0. Folder / Notebook Creation Intent (e.g. "create folder that says lulu", "make notebook projects")
-        is_folder_request = bool(
-            re.search(
-                r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\b",
-                q_clean,
+        # 0. Folder / Notebook Creation Intent (e.g. "create folder that says lulu", "create afolder called lu", "make notebook projects")
+        # Ensure it does NOT match when saving or moving a note into a folder (e.g. "save the previous note on new folder")
+        is_save_to_folder = bool(
+            re.search(r"\b(?:save|move|put|assign)\s+.*?\b(?:folder|notebook|afolder|anotebook)\b", q_clean)
+            or re.search(r"\b(?:save|move)\s+(?:the\s+|this\s+|my\s+)?(?:previous\s+)?(?:note|draft|it|this)\b", q_clean)
+        )
+        is_folder_request = (
+            not is_save_to_folder
+            and bool(
+                re.search(
+                    r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|afolder|notebook|anotebook|collection|category)\b",
+                    q_clean,
+                )
+                or re.search(r"\b(?:create|make)\s+(?:afolder|anotebook)\b", q_clean)
             )
         )
         if is_folder_request:
             m_f = re.search(
-                r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?(.+)$",
+                r"\b(?:create|make|add|new|start|open)\s+(?:mea\s+|me\s+a\s+|a\s+|new\s+)?(?:folder|afolder|notebook|anotebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?(.+)$",
                 q,
                 re.IGNORECASE,
             )

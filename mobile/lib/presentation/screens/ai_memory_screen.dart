@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../data/datasources/remote/ai_remote_data_source.dart';
 import '../providers/ai_provider.dart';
 import '../providers/folders_provider.dart';
+import '../providers/notes_provider.dart';
 import '../providers/sync_provider.dart';
 
 class AiMemoryScreen extends ConsumerStatefulWidget {
@@ -53,7 +54,7 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
 
     // Check if query is folder / notebook creation intent
     final folderRegex = RegExp(
-      r'^(?:please\s+)?(?:can\s+you\s+)?(?:create|make|add|new|start|open)\s+(?:me\s+a\s+|a\s+|new\s+)?(?:folder|notebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?([a-zA-Z0-9\s\-_]+)$',
+      r'^(?:please\s+)?(?:can\s+you\s+)?(?:create|make|add|new|start|open)\s+(?:me\s+a\s+|mea\s+|a\s+|new\s+)?(?:folder|afolder|notebook|anotebook|collection|category)\s*(?:that\s+says\s+|called\s+|named\s+|titled\s+|for\s+)?([a-zA-Z0-9\s\-_]+)$',
       caseSensitive: false,
     );
     final folderMatch = folderRegex.firstMatch(clean);
@@ -74,10 +75,12 @@ class _AiMemoryScreenState extends ConsumerState<AiMemoryScreen> {
     // Also call legacy aiNotifier for backwards-compatibility with tests & single-shot answers
     await ref.read(aiNotifierProvider.notifier).ask(clean);
 
-    // If this turn was an approval, immediately synchronize so the note is pulled locally
+    // If this turn was an approval or save, immediately synchronize so note/folder updates are pulled locally
     final lowerClean = clean.toLowerCase().trim();
-    if (lowerClean == 'approve' || lowerClean == 'yes' || lowerClean.contains('save')) {
+    if (lowerClean == 'approve' || lowerClean == 'yes' || lowerClean.contains('save') || lowerClean.contains('folder') || lowerClean.contains('notebook')) {
       await ref.read(syncProvider.notifier).syncNow();
+      await ref.read(notesListProvider.notifier).loadNotes();
+      await ref.read(foldersListProvider.notifier).loadFolders();
     }
 
     _scrollToBottom();

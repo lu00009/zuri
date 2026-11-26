@@ -436,10 +436,56 @@ class RetrievalService:
         }
         if q_clean in approval_words:
             return True
-        if re.search(r"\b(approve|save\s+(this|it|to\s+notes?)|add\s+to\s+notes?)\b", q_clean):
+        if re.search(r"\b(approve|save\s+(?:this|it|the\s+previous\s+note|the\s+note|note|to\s+notes?)|add\s+to\s+notes?)\b", q_clean):
             if not re.search(r"\b(did\s+i|what\s+did|search|find|check)\b", q_clean):
                 return True
+        if re.search(r"\b(?:save|move|put|assign)\s+(?:the\s+|this\s+|my\s+)?(?:previous\s+)?(?:note|draft|it|this|schedule)?\s*(?:to|in|on|into)\s+", q_clean):
+            return True
         return False
+
+    @staticmethod
+    def _extract_target_folder(query: str, history_list: list[dict[str, str]] | None = None) -> str | None:
+        # 1. If explicitly "new folder" / "the new folder" without a following name:
+        m_new = re.search(r"\b(?:to|in|on|into)\s+(?:the\s+|my\s+)?new\s+(?:folder|notebook|afolder|anotebook)\b", query, re.IGNORECASE)
+        if m_new and history_list:
+            for m_hist in reversed(history_list):
+                c = m_hist.get("content", "")
+                m_fc = re.search(r"folder\s+\*\*([^\*]+)\*\*", c, re.IGNORECASE)
+                if m_fc:
+                    return m_fc.group(1).strip()
+                m_fc2 = re.search(r"folder\s+([A-Za-z0-9\-_]+)\s+for\s+you", c, re.IGNORECASE)
+                if m_fc2:
+                    return m_fc2.group(1).strip()
+
+        # 2. Match "... folder <name>" or "... to/in/on/into <name>"
+        m = re.search(
+            r"\b(?:to|in|on|into)\s+(?:the\s+|my\s+)?(?:new\s+)?(?:folder|notebook|afolder|anotebook)\s+([a-zA-Z0-9\s\-_]+)$",
+            query,
+            re.IGNORECASE,
+        )
+        if not m:
+            m = re.search(
+                r"\b(?:to|in|on|into)\s+(?:the\s+|my\s+)?(?:new\s+)?(?:folder|notebook|afolder|anotebook)?\s*([a-zA-Z0-9\s\-_]+)$",
+                query,
+                re.IGNORECASE,
+            )
+        if m and m.group(1):
+            f = m.group(1).strip(" .:-'\"")
+            f = re.sub(r"^(?:folder|notebook|afolder|anotebook)\s+", "", f, flags=re.IGNORECASE).strip()
+            if f.lower() in {"notes", "my notes", "note", "the notes"}:
+                return None
+            if f.lower() in {"new folder", "a folder", "the folder", "folder"} and history_list:
+                for m_hist in reversed(history_list):
+                    c = m_hist.get("content", "")
+                    m_fc = re.search(r"folder\s+\*\*([^\*]+)\*\*", c, re.IGNORECASE)
+                    if m_fc:
+                        return m_fc.group(1).strip()
+                    m_fc2 = re.search(r"folder\s+([A-Za-z0-9\-_]+)\s+for\s+you", c, re.IGNORECASE)
+                    if m_fc2:
+                        return m_fc2.group(1).strip()
+            if f:
+                return f.title()
+        return None
 
     @staticmethod
     def _extract_note_draft(assistant_text: str) -> tuple[str, str]:
@@ -517,18 +563,37 @@ class RetrievalService:
 
         # 0. Approval Flow: If user replies "approve", "yes", "save it", create and save Note in DB
         if self._is_approval_intent(query):
-            last_assistant_msg = next((m["content"] for m in reversed(history_list) if m["role"] == "assistant"), None)
-            if last_assistant_msg and ("approve" in last_assistant_msg.lower() or "save this" in last_assistant_msg.lower() or "schedule" in last_assistant_msg.lower() or "draft" in last_assistant_msg.lower()):
-                title, content = self._extract_note_draft(last_assistant_msg)
+            target_folder = self._extract_target_folder(query, history_list)
 
-                from sqlalchemy import func
-                max_ver = (
-                    db.query(func.max(Note.version))
-                    .filter(Note.user_id == user_id)
-                    .scalar()
-                ) or 0
-                next_ver = max_ver + 1
+            # Search backwards for draft or recently saved note
+            draft_assistant_msg = None
+            recent_saved_title = None
 
+            for m in reversed(history_list):
+                if m.get("role") == "assistant":
+                    c = m.get("content", "")
+                    m_app = re.search(r"Approved!.*?note\s+['\"\*]*([^\*'\"]+?)['\"\*]*\s+(?:with|under|into|\.)", c, re.IGNORECASE)
+                    if m_app and not recent_saved_title:
+                        recent_saved_title = m_app.group(1).strip()
+                    if ("approve" in c.lower() or "save this" in c.lower() or "schedule" in c.lower() or "draft" in c.lower() or "•" in c or "📋" in c or "📅" in c or "###" in c):
+                        if not draft_assistant_msg and not m_app:
+                            draft_assistant_msg = c
+
+            existing_note = None
+            if recent_saved_title:
+                existing_note = (
+                    db.query(Note)
+                    .filter(
+                        Note.user_id == user_id,
+                        Note.title == recent_saved_title,
+                        Note.is_deleted.is_(False),
+                    )
+                    .order_by(Note.updated_at.desc())
+                    .first()
+                )
+
+            if not existing_note and draft_assistant_msg:
+                title, content = self._extract_note_draft(draft_assistant_msg)
                 existing_note = (
                     db.query(Note)
                     .filter(
@@ -539,35 +604,63 @@ class RetrievalService:
                     .order_by(Note.updated_at.desc())
                     .first()
                 )
-                if existing_note:
-                    existing_note.content = content
-                    existing_note.version = next_ver
-                    existing_note.updated_at = datetime.now(timezone.utc)
-                    db.flush()
-                    self.sync_user_embeddings(db, user_id)
-                    reply_text = (
-                        f"Approved! ✅ I have updated your note '**{title}**' with the latest details. "
-                        "You can view and edit it in your notes anytime."
+            elif not existing_note and target_folder:
+                # If user says "save previous note to folder X" without prior draft in this session
+                existing_note = (
+                    db.query(Note)
+                    .filter(
+                        Note.user_id == user_id,
+                        Note.is_deleted.is_(False),
                     )
-                else:
-                    new_note = Note(
-                        id=str(uuid.uuid4()),
-                        user_id=user_id,
-                        title=title,
-                        content=content,
-                        version=next_ver,
-                        is_deleted=False,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
-                    )
-                    db.add(new_note)
-                    db.flush()
-                    self.sync_user_embeddings(db, user_id)
+                    .order_by(Note.updated_at.desc())
+                    .first()
+                )
 
-                    reply_text = (
-                        f"Approved! ✅ I have saved this to your notes under '**{title}**'. "
-                        "You can view and edit it in your notes anytime."
-                    )
+            from sqlalchemy import func
+            max_ver = (
+                db.query(func.max(Note.version))
+                .filter(Note.user_id == user_id)
+                .scalar()
+            ) or 0
+            next_ver = max_ver + 1
+
+            folder_str = f" into the folder '**{target_folder}**'" if target_folder else ""
+
+            if existing_note:
+                if target_folder:
+                    existing_note.project_id = target_folder
+                if draft_assistant_msg:
+                    _, content = self._extract_note_draft(draft_assistant_msg)
+                    existing_note.content = content
+                existing_note.version = next_ver
+                existing_note.updated_at = datetime.now(timezone.utc)
+                db.flush()
+                self.sync_user_embeddings(db, user_id)
+                reply_text = (
+                    f"Approved! ✅ I have updated your note '**{existing_note.title}**'{folder_str} with the latest details. "
+                    "You can view and edit it in your notes anytime."
+                )
+            elif draft_assistant_msg:
+                title, content = self._extract_note_draft(draft_assistant_msg)
+                new_note = Note(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    title=title,
+                    content=content,
+                    project_id=target_folder,
+                    version=next_ver,
+                    is_deleted=False,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+                db.add(new_note)
+                db.flush()
+                self.sync_user_embeddings(db, user_id)
+
+                reply_text = (
+                    f"Approved! ✅ I have saved this to your notes under '**{title}**'{folder_str}. "
+                    "You can view and edit it in your notes anytime."
+                )
             else:
                 reply_text = "I'm ready to save when you have a note or schedule drafted! Tell me what you'd like to write or schedule first."
 
